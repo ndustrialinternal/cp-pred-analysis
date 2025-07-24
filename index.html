@@ -20,99 +20,134 @@
   <div id="error" class="error" style="display:none;"></div>
   <div id="content" style="display:none;"></div>
 
-  <!-- Supabase client -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <!-- correct UMD bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
   <script>
-  (async () => {
-    try {
-      const SUPABASE_URL      = 'https://univbemvihlcincvqwpz.supabase.co';
-      const SUPABASE_KEY      = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
-      const GRIDSTATUS_KEY    = 'bda3a30f30804e22a62e4637700bab54';
-      const supabaseClient    = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('🚀 script loaded');
+    (async () => {
+      console.log('⚡️ init…');
+      try {
+        const SUPABASE_URL   = 'https://univbemvihlcincvqwpz.supabase.co';
+        const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
+        const GRIDSTATUS_KEY = 'bda3a30f30804e22a62e4637700bab54';
 
-      const sources = [
-        { table: 'peak_snapshots_pjm_5cp_plc',       label: 'PJM RTO', type: 'pjm', apiKey: 'load.pjm_rto' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label: 'AECO',     type: 'pjm', apiKey: 'load.ae' },
-        /* ...other PJM zones... */
-        { table: 'peak_snapshots_ercot_4cp',         label: 'ERCOT',    type: 'ercot' }
-      ];
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-      async function fetchPredictions(table) {
-        console.log('🔍 Supabase: fetching from', table);
-        const { data, error } = await supabaseClient
-          .from(table)
-          .select('captured_at, day_0_peak_hour, day_0_peak_load')
-          .order('captured_at', { ascending: true });
-        console.log('↳ Supabase result for', table, { data, error });
-        if (error) throw error;
-        return data.filter(r => r.captured_at.includes('T08:'));
-      }
+        const sources = [
+          { table: 'peak_snapshots_pjm_5cp_plc',           label: 'PJM RTO', type: 'pjm', apiKey: 'load.pjm_rto' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label: 'AECO',     type: 'pjm', apiKey: 'load.ae' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label: 'AEP',      type: 'pjm', apiKey: 'load.aep' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label: 'BGE',      type: 'pjm', apiKey: 'load.bc' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label: 'COMED',    type: 'pjm', apiKey: 'load.comed' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_dpl',  label: 'DPL',      type: 'pjm', apiKey: 'load.dpl' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_peco', label: 'PECO',     type: 'pjm', apiKey: 'load.pe' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_ppl',  label: 'PPL',      type: 'pjm', apiKey: 'load.pl' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_pseg', label: 'PSEG',     type: 'pjm', apiKey: 'load.ps' },
+          { table: 'peak_snapshots_ercot_4cp',               label: 'ERCOT',    type: 'ercot' }
+        ];
 
-      // load all predictions
-      const allPreds = {};
-      await Promise.all(sources.map(async s => {
-        allPreds[s.table] = await fetchPredictions(s.table);
-      }));
+        async function fetchPredictions(table) {
+          console.log('🔍 Supabase: fetching from', table);
+          const { data, error } = await supabaseClient
+            .from(table)
+            .select('captured_at, day_0_peak_hour, day_0_peak_load')
+            .order('captured_at', { ascending: true });
+          console.log('↳ Supabase result for', table, { data, error });
+          if (error) throw error;
+          return data.filter(r => r.captured_at.includes('T08:'));
+        }
 
-      const content = document.getElementById('content');
+        const allPreds = {};
+        await Promise.all(sources.map(async src => {
+          allPreds[src.table] = await fetchPredictions(src.table);
+        }));
 
-      for (const src of sources) {
-        const preds = allPreds[src.table];
-        console.log(`⭐️ ${src.label} predictions:`, preds.length, preds);
-        if (!preds.length) continue;
+        const content = document.getElementById('content');
 
-        const sec = document.createElement('section');
-        sec.innerHTML = `<h2>${src.label}</h2>
-          <table>
-            <thead><tr>
-              <th>Predicted Peak Time</th>
-              <th>Predicted Load (MW)</th>
-              <th>Actual Peak Time</th>
-              <th>Actual Peak (MW)</th>
-            </tr></thead><tbody></tbody>
-          </table>`;
-        const tbody = sec.querySelector('tbody');
+        for (const src of sources) {
+          const preds = allPreds[src.table] || [];
+          console.log(`⭐️ ${src.label} predictions:`, preds.length, preds);
+          if (!preds.length) continue;
 
-        for (const row of preds) {
-          const datePart   = row.captured_at.split('T')[0];
-          const ph         = row.day_0_peak_hour;
-          const ampm       = ph >= 12 ? 'PM' : 'AM';
-          const h12        = ph % 12 || 12;
-          const tz         = src.type === 'pjm' ? 'ET' : 'CT';
-          const predictedTime = `${String(h12).padStart(2,'0')}:00 ${ampm} ${tz}`;
+          const sec = document.createElement('section');
+          sec.innerHTML = `<h2>${src.label}</h2>
+            <table>
+              <thead><tr>
+                <th>Predicted Peak Time</th>
+                <th>Predicted Load (MW)</th>
+                <th>Actual Peak Time</th>
+                <th>Actual Peak (MW)</th>
+              </tr></thead><tbody></tbody>
+            </table>`;
+          const tbody = sec.querySelector('tbody');
 
-          // fetch actual
-          let actualVal = 0, actualTime = '';
-          if (src.type === 'pjm') {
-            const url = `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query`
-              + `?start_time=${datePart}T12:00:00`
-              + `&end_time=${datePart}T21:00:00`
-              + `&timezone=market`;
-            console.log(`🔍 GridStatus PJM [${src.label}]`, url);
-            const resp = await fetch(url, { headers:{'x-api-key':GRIDSTATUS_KEY} });
-            const json = await resp.json();
-            console.log(`↳ PJM ${src.label} raw:`, json.data);
-            const arr = json.data || [];
-            let max = arr[0]||{};
-            arr.forEach(e => { if((e[src.apiKey]||0) > (max[src.apiKey]||0)) max=e; });
-            actualVal = max[src.apiKey]||0;
-            if (max.interval_end_local) {
-              actualTime = new Date(max.interval_end_local)
-                .toLocaleTimeString('en-US',{timeZone:'America/New_York',hour12:true,hour:'2-digit',minute:'2-digit'});
+          for (const row of preds) {
+            const datePart = row.captured_at.split('T')[0];
+            const ph = row.day_0_peak_hour;
+            const ampm = ph >= 12 ? 'PM' : 'AM';
+            const h12 = ph % 12 || 12;
+            const tz = src.type === 'pjm' ? 'ET' : 'CT';
+            const predictedTime = `${String(h12).padStart(2,'0')}:00 ${ampm} ${tz}`;
+
+            let actualVal = 0, actualTime = '';
+            if (src.type === 'pjm') {
+              const url = `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query`
+                + `?start_time=${datePart}T12:00:00&end_time=${datePart}T21:00:00&timezone=market`;
+              console.log(`🔍 GridStatus PJM [${src.label}]`, url);
+              const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
+              const json = await resp.json();
+              console.log(`↳ PJM ${src.label} raw:`, json.data);
+              const arr = json.data || [];
+              let max = arr[0] || {};
+              arr.forEach(e => { if ((e[src.apiKey]||0) > (max[src.apiKey]||0)) max = e; });
+              actualVal = max[src.apiKey] || 0;
+              if (max.interval_end_local) {
+                actualTime = new Date(max.interval_end_local)
+                  .toLocaleTimeString('en-US',{timeZone:'America/New_York',hour12:true,hour:'2-digit',minute:'2-digit'});
+              }
+            } else {
+              const url = `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query`
+                + `?start_time=${datePart}T12:00:00&end_time=${datePart}T21:00:00&timezone=market`;
+              console.log(`🔍 GridStatus ERCOT`, url);
+              const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
+              const json = await resp.json();
+              console.log('↳ ERCOT raw:', json.data);
+              const arr = (json.data || []).map(d => ({
+                ...d,
+                cp: d.internal_generation + d.dc_tie_imports - d.dc_tie_exports - d.wholesale_storage_load
+              }));
+              let max = arr[0] || {};
+              arr.forEach(d => { if ((d.cp||0) > (max.cp||0)) max = d; });
+              actualVal = max.cp || 0;
+              if (max.interval_end_local) {
+                actualTime = new Date(max.interval_end_local)
+                  .toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour12:true,hour:'2-digit',minute:'2-digit'});
+              }
             }
-          } else {
-            const url = `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query`
-              + `?start_time=${datePart}T12:00:00`
-              + `&end_time=${datePart}T21:00:00`
-              + `&timezone=market`;
-            console.log(`🔍 GridStatus ERCOT`, url);
-            const resp = await fetch(url, { headers:{'x-api-key':GRIDSTATUS_KEY} });
-            const json = await resp.json();
-            console.log('↳ ERCOT raw:', json.data);
-            const arr = (json.data||[]).map(d=>({
-              ...d, cp: d.internal_generation + d.dc_tie_imports - d.dc_tie_exports - d.wholesale_storage_load
-            }));
-            let max = arr[0]||{};
-            arr.forEach(d=>{ if((d.cp||0) > (max.cp||0)) max=d; });
-            actualVal = max.cp||0;
-            if (max.interval_end_local)
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${predictedTime}</td>
+              <td>${Number(row.day_0_peak_load).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})}</td>
+              <td>${actualTime}</td>
+              <td>${actualVal.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          content.appendChild(sec);
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        content.style.display = '';
+      } catch (err) {
+        console.error(err);
+        document.getElementById('loading').style.display = 'none';
+        const eDiv = document.getElementById('error');
+        eDiv.innerText = 'Error: ' + err.message;
+        eDiv.style.display = '';
+      }
+    })();
+  </script>
+</body>
+</html>
