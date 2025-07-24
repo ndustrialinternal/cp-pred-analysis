@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Predictions vs. Actual Peaks</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background-color: #f9f9f9;
+      color: #333;
+    }
+    h1, h2 {
+      margin-bottom: 0.5rem;
+    }
+    section {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    th, td {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+    th {
+      background-color: #f0f0f0;
+    }
+    #loading, .loading {
+      font-style: italic;
+      color: #666;
+    }
+    .error {
+      color: #c00;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Amperon Day‑0 Predictions vs. Actual Daily Peaks</h1>
+  <div id="loading">Loading data…</div>
+  <div id="error" class="error" style="display:none;"></div>
+  <div id="content" style="display:none;"></div>
+
+  <!-- Supabase client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script>
+    (async () => {
+      try {
+        // --- CONFIG ---
+        const SUPABASE_URL = 'https://univbemvihlcincvqwpz.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
+        const GRIDSTATUS_KEY = 'bda3a30f30804e22a62e4637700bab54';
+
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Define your sources: table + label + type + gridstatus field
+        const sources = [
+          { table: 'peak_snapshots_pjm_5cp_plc',       label: 'PJM RTO',  type: 'pjm', apiKey: 'load.pjm_rto' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label: 'AECO',     type: 'pjm', apiKey: 'load.ae' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label: 'AEP',      type: 'pjm', apiKey: 'load.aep' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label: 'BGE',      type: 'pjm', apiKey: 'load.bc' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label: 'COMED',    type: 'pjm', apiKey: 'load.comed' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_dpl',  label: 'DPL',      type: 'pjm', apiKey: 'load.dpl' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_peco', label: 'PECO',     type: 'pjm', apiKey: 'load.pe' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_ppl',  label: 'PPL',      type: 'pjm', apiKey: 'load.pl' },
+          { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_pseg', label: 'PSEG',     type: 'pjm', apiKey: 'load.ps' },
+          { table: 'peak_snapshots_ercot_4cp',         label: 'ERCOT',    type: 'ercot' }
+        ];
+
+        // Helper to fetch predictions for a table, filtering only 08:XX:XX captures
+        async function fetchPredictions(table) {
+          const { data, error } = await supabase
+            .from(table)
+            .select('captured_at, day_0_peak_load')
+            .order('captured_at', { ascending: true });
+          if (error) throw error;
+          // only keep those with captured_at hour=08 local (ISO string has T08)
+          return data.filter(r => r.captured_at.includes('T08:'));
+        }
+
+        // Fetch all predictions
+        const allPreds = {};
+        await Promise.all(sources.map(async src => {
+          allPreds[src.table] = await fetchPredictions(src.table);
+        }));
+
+        // Build UI
+        const content = document.getElementById('content');
+        content.innerHTML = '';
+
+        for (const src of sources) {
+          const preds = allPreds[src.table];
+          if (!preds.length) continue;
+
+          // Section header
+          const sec = document.createElement('section');
+          const h2 = document.createElement('h2');
+          h2.innerText = src.label;
+          sec.appendChild(h2);
+
+          // Table
+          const tbl = document.createElement('table');
+          tbl.innerHTML = `
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Predicted (MW)</th>
+                <th>Actual Peak (MW)</th>
+                <th>Actual Time</th>
+              </tr>
+            </thead>
+          `;
+          const tbody = document.createElement('tbody');
+
+          // For each prediction row, fetch actual
+          for (const row of preds) {
+            const date = row.captured_at.split('T')[0];
+            let actualVal = null, actualTime = '';
+
+            if (src.type === 'pjm') {
+              // PJM actual: max load for zone between 12:00 and 21:00 ET
+              const url = 
+                `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query` +
+                `?start_time=${date}T12:00:00` +
+                `&end_time=${date}T21:00:00` +
+                `&timezone=market`;
+              const resp = await fetch(url, {
+                headers: { 'x-api-key': GRIDSTATUS_KEY }
+              });
+              const json = await resp.json();
+              const arr = json.data || [];
+              // find max by src.apiKey
+              let max = arr[0] || {};
+              arr.forEach(e => {
+                if ((e[src.apiKey] || 0) > (max[src.apiKey] || 0)) {
+                  max = e;
+                }
+              });
+              actualVal = max[src.apiKey] || 0;
+              if (max.interval_end_local) {
+                const dt = new Date(max.interval_end_local);
+                actualTime = dt.toLocaleTimeString('en-US', {
+                  timeZone: 'America/New_York',
+                  hour12: true, hour: '2-digit', minute: '2-digit'
+                });
+              }
+            } else {
+              // ERCOT actual: compute cp = int_gen + dc_in - dc_out - wsl
+              const url =
+                `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query` +
+                `?start_time=${date}T12:00:00` +
+                `&end_time=${date}T21:00:00` +
+                `&timezone=market`;
+              const resp = await fetch(url, {
+                headers: { 'x-api-key': GRIDSTATUS_KEY }
+              });
+              const json = await resp.json();
+              const arr = json.data || [];
+              arr.forEach(d => {
+                d.cp = d.internal_generation 
+                     + d.dc_tie_imports 
+                     - d.dc_tie_exports 
+                     - d.wholesale_storage_load;
+              });
+              let max = arr[0] || { cp: 0 };
+              arr.forEach(d => {
+                if ((d.cp || 0) > (max.cp || 0)) {
+                  max = d;
+                }
+              });
+              actualVal = max.cp || 0;
+              if (max.interval_end_local) {
+                const dt = new Date(max.interval_end_local);
+                actualTime = dt.toLocaleTimeString('en-US', {
+                  timeZone: 'America/Chicago',
+                  hour12: true, hour: '2-digit', minute: '2-digit'
+                });
+              }
+            }
+
+            // Row
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${date}</td>
+              <td>${Number(row.day_0_peak_load).toLocaleString(undefined,{
+                minimumFractionDigits:3, maximumFractionDigits:3
+              })}</td>
+              <td>${actualVal.toLocaleString(undefined,{
+                minimumFractionDigits:3, maximumFractionDigits:3
+              })}</td>
+              <td>${actualTime}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          tbl.appendChild(tbody);
+          sec.appendChild(tbl);
+          content.appendChild(sec);
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        content.style.display = '';
+      } catch (err) {
+        document.getElementById('loading').style.display = 'none';
+        const eDiv = document.getElementById('error');
+        eDiv.innerText = 'Error: ' + err.message;
+        eDiv.style.display = '';
+      }
+    })();
+  </script>
+</body>
+</html>
