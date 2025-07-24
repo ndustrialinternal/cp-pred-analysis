@@ -2,34 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Predictions vs. Actual Peaks</title>
+  <title>Amperon Day‑0 Predictions vs. Actual Daily Peaks</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 2rem; background: #f9f9f9; color: #333; }
-    h1, h2 { margin-bottom: 0.5rem; }
+    h1 { margin-bottom: 1rem; }
+    #legend { margin: 1rem 0; font-size: 0.9rem; }
+    #legend span { display: inline-block; width: 1rem; height: 1rem; background: #fffa8b; border: 1px solid #ccc; margin-right: 0.5rem; vertical-align: middle; }
+    #legend .prob { display: inline-block; width: 1rem; height: 1rem; border: 2px solid red; margin-right: 0.5rem; vertical-align: middle; }
+    #controls { margin-bottom: 1rem; }
     section { margin-top: 2rem; padding: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; }
     table { width: 100%; border-collapse: collapse; margin: .5rem 0 1.5rem; }
     th, td { padding: .5rem; border: 1px solid #ccc; text-align: center; }
     th { background: #f0f0f0; }
+    .highlight { background: #fffa8b; }
+    .high-prob { outline: 2px solid red; }
     #loading { font-style: italic; color: #666; }
     .error { color: #c00; margin-top: .5rem; }
   </style>
 </head>
 <body>
-  <h1>Amperon Day-0 Predictions vs. Actual Daily Peaks</h1>
+  <h1>Amperon Day‑0 Predictions vs. Actual Daily Peaks</h1>
+  <div id="legend">
+    <span></span> Top 5 Actual Peak Values Each Month
+    <span class="prob"></span> Predictions ≥ threshold (outlined in red)
+  </div>
+  <div id="controls">
+    <label for="prob-input">Set Probability Threshold (%): </label>
+    <input type="number" id="prob-input" min="0" max="100" step="1" value="90" style="width: 4rem;" />
+  </div>
   <div id="loading">Loading data…</div>
   <div id="error" class="error" style="display:none;"></div>
   <div id="content" style="display:none;"></div>
 
-  <!-- Supabase UMD bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
   (async () => {
     try {
       const SUPABASE_URL   = 'https://univbemvihlcincvqwpz.supabase.co';
-      const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
-      const GRIDSTATUS_KEY = 'bda3a30f30804e22a62e4637700bab54';
-
-      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      const SUPABASE_ANON  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
+      const GRID_KEY       = 'bda3a30f30804e22a62e4637700bab54';
+      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
       const sources = [
         { table: 'peak_snapshots_pjm_5cp_plc',           label: 'PJM RTO',  type: 'pjm', apiKey: 'load.pjm_rto' },
@@ -44,97 +56,132 @@
         { table: 'peak_snapshots_ercot_4cp',               label: 'ERCOT',    type: 'ercot' }
       ];
 
-      async function fetchPredictions(table) {
+      // 1) Fetch predictions
+      const allPreds = {}, allDates = new Set();
+      for (const src of sources) {
         const { data, error } = await supabaseClient
-          .from(table)
-          .select('captured_at, day_0_peak_hour, day_0_peak_load')
-          .order('captured_at', { ascending: true });
+          .from(src.table)
+          .select('captured_at, day_0_peak_hour, day_0_peak_load, day_0_probability')
+          .order('captured_at');
         if (error) throw error;
-        return data.filter(r => {
-          const dt = new Date(r.captured_at);
-          return dt.getHours() === 8;
+        allPreds[src.table] = data;
+        data.forEach(r => allDates.add(r.captured_at.slice(0,10)));
+      }
+
+      // create date window
+      const dates = Array.from(allDates).sort();
+      const start = dates[0] + 'T12:00:00';
+      const end   = dates[dates.length-1] + 'T21:00:00';
+
+      // 2) Fetch PJM
+      const pjData = await fetch(
+        `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query` +
+        `?start_time=${start}&end_time=${end}&timezone=market`,
+        { headers:{ 'x-api-key': GRID_KEY } }
+      ).then(r => r.json());
+      const pjMap = {};
+      (pjData.data || []).forEach(e => {
+        const d = e.interval_end_local.slice(0,10);
+        (pjMap[d] = pjMap[d]||[]).push(e);
+      });
+
+      // delay then ERCOT
+      await new Promise(r => setTimeout(r,1100));
+      const erData = await fetch(
+        `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query` +
+        `?start_time=${start}&end_time=${end}&timezone=market`,
+        { headers:{ 'x-api-key': GRID_KEY } }
+      ).then(r => r.json());
+      const erMap = {};
+      (erData.data || []).forEach(e => {
+        e.cp = e.internal_generation + e.dc_tie_imports - e.dc_tie_exports - e.wholesale_storage_load;
+        const d = e.interval_end_local.slice(0,10);
+        (erMap[d] = erMap[d]||[]).push(e);
+      });
+
+      // attach actuals & compute highlights
+      for (const src of sources) {
+        const rows = allPreds[src.table];
+        const byMonth = {};
+        rows.forEach(r => {
+          const d = r.captured_at.slice(0,10);
+          const recs = src.type==='pjm'? pjMap[d]||[] : erMap[d]||[];
+          const key = src.type==='pjm'? src.apiKey : 'cp';
+          let best = recs[0]||{};
+          recs.forEach(e => { if ((e[key]||0) > (best[key]||0)) best = e; });
+          r.actualPeak     = best[key]||0;
+          r.actualInterval = best.interval_end_local||'';
+          if (src.type==='ercot') {
+            r.internal_gen = best.internal_generation||0;
+            r.estimated_cp = best.estimated_cp_load||0;
+            r.estimated_gen = best.estimated_cp_load_using_gen||0;
+          }
+          const month = r.captured_at.slice(0,7);
+          (byMonth[month] = byMonth[month]||[]).push(r);
+        });
+        src.highlights = new Set();
+        Object.values(byMonth).forEach(arr => {
+          arr.sort((a,b) => b.actualPeak - a.actualPeak);
+          arr.slice(0,5).forEach(r => src.highlights.add(r.captured_at));
         });
       }
 
-      const allPreds = {};
-      for (const src of sources) {
-        allPreds[src.table] = await fetchPredictions(src.table);
-      }
-
+      // render tables with dynamic prob threshold
       const content = document.getElementById('content');
-      for (const src of sources) {
-        const preds = allPreds[src.table];
-        if (!preds || !preds.length) continue;
+      const probInput = document.getElementById('prob-input');
+      function render() {
+        content.innerHTML = '';
+        const threshold = Number(probInput.value) || 0;
+        sources.forEach(src => {
+          const rows = allPreds[src.table];
+          if (!rows.length) return;
+          // count above threshold
+          const countHigh = rows.filter(r => r.day_0_probability >= threshold).length;
+          const sec = document.createElement('section');
+          const h2 = document.createElement('h2');
+          h2.innerText = `${src.label} (≥${threshold}%: ${countHigh})`;
+          sec.appendChild(h2);
 
-        const sec = document.createElement('section');
-        sec.innerHTML = `<h2>${src.label}</h2>
-          <table>
-            <thead><tr>
-              <th>Predicted Peak Time</th>
-              <th>Predicted Load (MW)</th>
-              <th>Actual Peak Time</th>
-              <th>Actual Peak (MW)</th>
-            </tr></thead><tbody></tbody>
-          </table>`;
-        const tbody = sec.querySelector('tbody');
+          const tbl = document.createElement('table');
+          const thead = tbl.createTHead(); const hdr = thead.insertRow();
+          const headers = ['Date','Pred. Peak Time (Hour End)','Pred. Load (MW)','Probability (%)'];
+          if (src.type==='ercot') headers.push('Int. Gen (MW)','Est. CP Load (MW)','Est. CP w/ Gen (MW)');
+          headers.push('Act. Peak Time (Interval End)','Act. Peak (MW)');
+          headers.forEach(txt => { const th = document.createElement('th'); th.innerText = txt; hdr.appendChild(th); });
 
-        for (const row of preds) {
-          const date = row.captured_at.split('T')[0];
-          const ph = row.day_0_peak_hour;
-          const ampm = ph >= 12 ? 'PM' : 'AM';
-          const h12 = ph % 12 || 12;
-          const tz = src.type === 'pjm' ? 'ET' : 'CT';
-          const predictedTime = `${String(h12).padStart(2,'0')}:00 ${ampm} ${tz}`;
+          const tbody = tbl.createTBody();
+          rows.forEach(r => {
+            const tr = tbody.insertRow();
+            if (src.highlights.has(r.captured_at)) tr.classList.add('highlight');
+            if (r.day_0_probability >= threshold) tr.classList.add('high-prob');
+            const cells = [];
+            cells.push(
+              r.captured_at.slice(0,10),
+              `${String(r.day_0_peak_hour%12||12).padStart(2,'0')}:00 ${r.day_0_peak_hour>=12?'PM':'AM'} ${src.type==='pjm'?'ET':'CT'}`,
+              Number(r.day_0_peak_load)*1000,
+              Number(r.day_0_probability)
+            );
+            if (src.type==='ercot') cells.push(r.internal_gen, r.estimated_cp, r.estimated_gen);
+            cells.push(
+              r.actualInterval? new Date(r.actualInterval).toLocaleTimeString('en-US',{timeZone:src.type==='pjm'?'America/New_York':'America/Chicago',hour12:true,hour:'2-digit',minute:'2-digit'}) : '',
+              r.actualPeak
+            );
+            cells.forEach(val => { const td = tr.insertCell(); td.innerText = typeof val==='number' ? val.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3}) : val; });
+          });
 
-          let actualVal = 0, actualTime = '';
-          if (src.type === 'pjm') {
-            const url = `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query` +
-                        `?start_time=${date}T12:00:00&end_time=${date}T21:00:00&timezone=market`;
-            const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
-            const arr = (await resp.json()).data || [];
-            let max = arr[0] || {};
-            arr.forEach(e => { if ((e[src.apiKey]||0) > (max[src.apiKey]||0)) max = e; });
-            actualVal = max[src.apiKey]||0;
-            if (max.interval_end_local) {
-              actualTime = new Date(max.interval_end_local)
-                .toLocaleTimeString('en-US',{ timeZone:'America/New_York', hour12:true, hour:'2-digit', minute:'2-digit' });
-            }
-          } else {
-            const url = `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query` +
-                        `?start_time=${date}T12:00:00&end_time=${date}T21:00:00&timezone=market`;
-            const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
-            const arr = ((await resp.json()).data || []).map(d => ({
-              ...d,
-              cp: d.internal_generation + d.dc_tie_imports - d.dc_tie_exports - d.wholesale_storage_load
-            }));
-            let max = arr[0] || {};
-            arr.forEach(d => { if ((d.cp||0) > (max.cp||0)) max = d; });
-            actualVal = max.cp||0;
-            if (max.interval_end_local) {
-              actualTime = new Date(max.interval_end_local)
-                .toLocaleTimeString('en-US',{ timeZone:'America/Chicago', hour12:true, hour:'2-digit', minute:'2-digit' });
-            }
-          }
-
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${predictedTime}</td>
-            <td>${Number(row.day_0_peak_load).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})}</td>
-            <td>${actualTime}</td>
-            <td>${actualVal.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})}</td>
-          `;
-          tbody.appendChild(tr);
-        }
-
-        content.appendChild(sec);
+          sec.appendChild(tbl);
+          content.appendChild(sec);
+        });
       }
-
+      probInput.addEventListener('input', render);
+      render();
       document.getElementById('loading').style.display = 'none';
       content.style.display = '';
-    } catch (err) {
+
+    } catch(err) {
       document.getElementById('loading').style.display = 'none';
       const e = document.getElementById('error');
-      e.innerText = 'Error: ' + err.message;
+      e.innerText = 'Error: '+err.message;
       e.style.display = '';
     }
   })();
