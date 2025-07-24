@@ -20,21 +20,21 @@
   <div id="error" class="error" style="display:none;"></div>
   <div id="content" style="display:none;"></div>
 
-  <!-- correct UMD bundle -->
+  <!-- UMD bundle -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
   <script>
-    console.log('🚀 script loaded');
     (async () => {
-      console.log('⚡️ init…');
+      console.log('🚀 script loaded');
       try {
         const SUPABASE_URL   = 'https://univbemvihlcincvqwpz.supabase.co';
         const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
         const GRIDSTATUS_KEY = 'bda3a30f30804e22a62e4637700bab54';
 
+        console.log('⚡️ init supabase client');
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const sources = [
-          { table: 'peak_snapshots_pjm_5cp_plc',           label: 'PJM RTO', type: 'pjm', apiKey: 'load.pjm_rto' },
+          { table: 'peak_snapshots_pjm_5cp_plc',           label: 'PJM RTO',  type: 'pjm', apiKey: 'load.pjm_rto' },
           { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label: 'AECO',     type: 'pjm', apiKey: 'load.ae' },
           { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label: 'AEP',      type: 'pjm', apiKey: 'load.aep' },
           { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label: 'BGE',      type: 'pjm', apiKey: 'load.bc' },
@@ -52,21 +52,28 @@
             .from(table)
             .select('captured_at, day_0_peak_hour, day_0_peak_load')
             .order('captured_at', { ascending: true });
-          console.log('↳ Supabase result for', table, { data, error });
+          console.log('↳ raw data length for', table, data?.length, 'error:', error);
           if (error) throw error;
-          return data.filter(r => r.captured_at.includes('T08:'));
+          // filter by local ET hour = 8
+          const filtered = data.filter(r => {
+            const dt = new Date(r.captured_at);
+            return dt.getHours() === 8;
+          });
+          console.log('↳ filtered (08:xx) count for', table, filtered.length);
+          return filtered;
         }
 
+        // load all preds
         const allPreds = {};
-        await Promise.all(sources.map(async src => {
-          allPreds[src.table] = await fetchPredictions(src.table);
+        await Promise.all(sources.map(async s => {
+          allPreds[s.table] = await fetchPredictions(s.table);
         }));
 
         const content = document.getElementById('content');
 
         for (const src of sources) {
           const preds = allPreds[src.table] || [];
-          console.log(`⭐️ ${src.label} predictions:`, preds.length, preds);
+          console.log(`⭐️ ${src.label} predictions:`, preds);
           if (!preds.length) continue;
 
           const sec = document.createElement('section');
@@ -94,34 +101,34 @@
               const url = `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query`
                 + `?start_time=${datePart}T12:00:00&end_time=${datePart}T21:00:00&timezone=market`;
               console.log(`🔍 GridStatus PJM [${src.label}]`, url);
-              const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
+              const resp = await fetch(url, { headers:{ 'x-api-key':GRIDSTATUS_KEY } });
               const json = await resp.json();
               console.log(`↳ PJM ${src.label} raw:`, json.data);
               const arr = json.data || [];
-              let max = arr[0] || {};
-              arr.forEach(e => { if ((e[src.apiKey]||0) > (max[src.apiKey]||0)) max = e; });
-              actualVal = max[src.apiKey] || 0;
+              let max = arr[0]||{};
+              arr.forEach(e => { if((e[src.apiKey]||0) > (max[src.apiKey]||0)) max=e; });
+              actualVal = max[src.apiKey]||0;
               if (max.interval_end_local) {
                 actualTime = new Date(max.interval_end_local)
-                  .toLocaleTimeString('en-US',{timeZone:'America/New_York',hour12:true,hour:'2-digit',minute:'2-digit'});
+                  .toLocaleTimeString('en-US',{ timeZone:'America/New_York', hour12:true, hour:'2-digit', minute:'2-digit' });
               }
             } else {
               const url = `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query`
                 + `?start_time=${datePart}T12:00:00&end_time=${datePart}T21:00:00&timezone=market`;
               console.log(`🔍 GridStatus ERCOT`, url);
-              const resp = await fetch(url, { headers: { 'x-api-key': GRIDSTATUS_KEY } });
+              const resp = await fetch(url, { headers:{ 'x-api-key':GRIDSTATUS_KEY } });
               const json = await resp.json();
               console.log('↳ ERCOT raw:', json.data);
-              const arr = (json.data || []).map(d => ({
+              const arr = (json.data||[]).map(d => ({
                 ...d,
                 cp: d.internal_generation + d.dc_tie_imports - d.dc_tie_exports - d.wholesale_storage_load
               }));
-              let max = arr[0] || {};
-              arr.forEach(d => { if ((d.cp||0) > (max.cp||0)) max = d; });
-              actualVal = max.cp || 0;
+              let max = arr[0]||{};
+              arr.forEach(d => { if((d.cp||0) > (max.cp||0)) max=d; });
+              actualVal = max.cp||0;
               if (max.interval_end_local) {
                 actualTime = new Date(max.interval_end_local)
-                  .toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour12:true,hour:'2-digit',minute:'2-digit'});
+                  .toLocaleTimeString('en-US',{ timeZone:'America/Chicago', hour12:true, hour:'2-digit', minute:'2-digit' });
               }
             }
 
@@ -143,9 +150,9 @@
       } catch (err) {
         console.error(err);
         document.getElementById('loading').style.display = 'none';
-        const eDiv = document.getElementById('error');
-        eDiv.innerText = 'Error: ' + err.message;
-        eDiv.style.display = '';
+        const d = document.getElementById('error');
+        d.innerText = 'Error: ' + err.message;
+        d.style.display = '';
       }
     })();
   </script>
