@@ -23,11 +23,12 @@
   <!-- UMD bundle -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
   <script>
+    console.log('🚀 script loaded');
     (async () => {
-      console.log('🚀 script loaded');
       try {
         const SUPABASE_URL   = 'https://univbemvihlcincvqwpz.supabase.co';
-        const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
+        // replaced with the new key you provided:
+        const SUPABASE_KEY   = 'sb_secret_pbn9XLzD0Cz1xE8I_gsBIQ_tNOPTL2D';
         const GRIDSTATUS_KEY = 'bda3a30f30804e22a62e4637700bab54';
 
         console.log('⚡️ init supabase client');
@@ -65,8 +66,8 @@
 
         // load all preds
         const allPreds = {};
-        await Promise.all(sources.map(async s => {
-          allPreds[s.table] = await fetchPredictions(s.table);
+        await Promise.all(sources.map(async src => {
+          allPreds[src.table] = await fetchPredictions(src.table);
         }));
 
         const content = document.getElementById('content');
