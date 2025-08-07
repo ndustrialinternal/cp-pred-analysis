@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Amperon Day-0 Predictions vs. Actual Daily Peaks</title>
+  <title>Nsight Predictions vs Actual Peaks</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 2rem; background: #f9f9f9; color: #333; }
     h1 { margin-bottom: 1rem; }
@@ -16,15 +16,18 @@
     th, td { padding: .5rem; border: 1px solid #ccc; text-align: center; }
     th { background: #f0f0f0; }
     .high-prob { outline: 2px solid red; }
+    .top-actual { background-color: #fffa8b !important; }
     #loading { font-style: italic; color: #666; }
     .error { color: #c00; margin-top: .5rem; }
     .debug { background: #f0f8ff; padding: 10px; margin: 10px 0; border: 1px solid #ccc; font-family: monospace; font-size: 12px; }
+    .export-btn { margin-left: 1rem; padding: 0.5rem 1rem; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .export-btn:hover { opacity: 0.8; }
   </style>
 </head>
 <body>
-  <h1>Amperon Day-0 Predictions vs. Actual Daily Peaks</h1>
+  <h1>Nsight Predictions vs Actual Peaks</h1>
   <div id="legend">
-    <span></span> Top 5 Actual Peak Values Each Month  
+    <span></span> Highest Loads (5/month PJM, 1/month ERCOT)
     <span class="prob"></span> Predictions ≥ threshold (outlined in red)
   </div>
   <div id="controls">
@@ -40,7 +43,20 @@
     <label for="prob-input">Probability ≥</label>
     <input type="number" id="prob-input" min="0" max="100" step="1" value="93" style="width:4rem;" />
 
-    <label><input type="checkbox" id="debug-mode" /> Debug Mode</label>
+    <label for="day-filter">Day of Week:</label>
+    <select id="day-filter">
+      <option value="ALL">All Days</option>
+      <option value="0">Sunday</option>
+      <option value="1">Monday</option>
+      <option value="2">Tuesday</option>
+      <option value="3">Wednesday</option>
+      <option value="4">Thursday</option>
+      <option value="5">Friday</option>
+      <option value="6">Saturday</option>
+    </select>
+
+    <button id="export-pjm" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer;">Export PJM CSV</button>
+    <button id="export-ercot" style="padding: 0.5rem 1rem; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Export ERCOT CSV</button>
   </div>
   <div id="loading">Loading data…</div>
   <div id="error" class="error" style="display:none;"></div>
@@ -71,7 +87,7 @@
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label:'AECO',       zone:'AE',     type:'pjm' },
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label:'AEP',        zone:'AEP',    type:'pjm' },
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label:'BGE',        zone:'BC',     type:'pjm' },
-          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label:'COMED',      zone:'CE',     type:'pjm' }, // Fixed: was 'COMED', should be 'CE'
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label:'COMED',      zone:'CE',     type:'pjm' },
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_dpl',  label:'DPL',        zone:'DPL',    type:'pjm' },
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_peco', label:'PECO',       zone:'PE',     type:'pjm' },
           { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_ppl',  label:'PPL',        zone:'PL',     type:'pjm' },
@@ -89,23 +105,53 @@
         });
 
         // 1) Fetch Day-0 predictions
+        console.log('=== FETCHING PREDICTIONS ===');
         const allPreds = {}, dateSet = new Set();
         for (const s of sources) {
+          console.log(`Fetching predictions for ${s.label}...`);
           const { data, error } = await peaksClient
             .from(s.key)
             .select('captured_at, day_0_peak_hour, day_0_peak_load, day_0_probability')
             .order('captured_at');
           if (error) throw error;
-          allPreds[s.key] = data;
-          data.forEach(r => dateSet.add(r.captured_at.slice(0,10)));
+          allPreds[s.key] = data || [];
+          console.log(`${s.label} predictions:`, data?.length || 0, 'rows');
+          
+          // Process dates safely
+          if (data && data.length > 0) {
+            console.log(`${s.label} first prediction:`, JSON.stringify(data[0], null, 2));
+            data.forEach((r, idx) => {
+              try {
+                if (r?.captured_at && typeof r.captured_at === 'string') {
+                  dateSet.add(r.captured_at.slice(0,10));
+                } else {
+                  console.warn(`Invalid prediction row ${idx} in ${s.label}:`, r);
+                }
+              } catch (err) {
+                console.error(`Error processing prediction row ${idx} in ${s.label}:`, err, r);
+              }
+            });
+          }
         }
+
+        console.log('All predictions fetched. DateSet size:', dateSet.size);
+        console.log('DateSet values:', Array.from(dateSet).sort().slice(0, 5));
 
         // initialize date inputs
         const dates = Array.from(dateSet).sort();
+        console.log('Sorted dates for queries:', dates.slice(0, 5), '...', dates.slice(-2));
+        
+        if (dates.length === 0) {
+          throw new Error('No valid dates found in predictions data');
+        }
+        
         document.getElementById('start-date').value = dates[0];
         document.getElementById('end-date').value   = dates[dates.length-1];
 
+        console.log('Date range for queries:', dates[0], 'to', dates[dates.length-1]);
+
         // 2) Fetch PJM actual daily peaks
+        console.log('=== FETCHING PJM DATA ===');
         const { data: pjmData, error: pjmErr } = await loadsClient
           .from('pjm_daily_max')
           .select('interval_start_utc, zone, mw')
@@ -114,86 +160,301 @@
           .order('interval_start_utc');
         if (pjmErr) throw pjmErr;
 
-        // 3) Fetch ERCOT 15-min to find daily max cp
+        console.log('PJM data sample:', pjmData?.slice(0, 3));
+        console.log('PJM data length:', pjmData?.length);
+        console.log('PJM first row detailed:', JSON.stringify(pjmData?.[0], null, 2));
+
+        // 3) Fetch ERCOT daily max cp
+        console.log('=== FETCHING ERCOT DATA ===');
         const { data: ercotData, error: ercErr } = await loadsClient
-          .from('gridstatus_ercot_15min')
-          .select('interval_start_utc, interval_end_utc, cp')
-          .gte('interval_start_utc', `${dates[0]} 00:00:00+00`)
-          .lte('interval_start_utc', `${dates[dates.length-1]} 23:59:59+00`)
-          .order('interval_start_utc');
+          .from('ercot_daily_max')
+          .select('interval_start_local, cp')
+          .gte('interval_start_local', `${dates[0]} 00:00:00`)
+          .lte('interval_start_local', `${dates[dates.length-1]} 23:59:59`)
+          .order('interval_start_local');
         if (ercErr) throw ercErr;
 
+        console.log('ERCOT data sample:', ercotData?.slice(0, 3));
+        console.log('ERCOT data length:', ercotData?.length);
+        console.log('ERCOT first row detailed:', JSON.stringify(ercotData?.[0], null, 2));
+
         // Build maps of actuals with improved date handling
+        console.log('=== PROCESSING ACTUAL DATA ===');
         const pjmMap   = {};
         const ercotMap = {};
-        
+
         // Process PJM data - convert UTC to ET and extract date
-        pjmData.forEach(e => {
-          // Parse UTC timestamp
-          const utcDate = new Date(e.interval_start_utc.replace(' ', 'T'));
-          // Convert to Eastern Time and get date string (YYYY-MM-DD format)
-          const etDate = utcDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-          
-          pjmMap[etDate] = pjmMap[etDate] || {};
-          pjmMap[etDate][e.zone] = { 
-            time: utcDate, 
-            mw: parseFloat(e.mw)
-          };
-        });
+        console.log('Processing PJM data...');
+        if (pjmData && Array.isArray(pjmData)) {
+          pjmData.forEach((e, index) => {
+            try {
+              // Check if the entire row exists
+              if (!e) {
+                console.warn(`PJM row ${index} is null/undefined:`, e);
+                return;
+              }
+              
+              // Check if interval_start_utc exists and is valid
+              if (!e.interval_start_utc) {
+                console.warn(`PJM row ${index} has missing interval_start_utc:`, e);
+                return;
+              }
+              
+              // Parse UTC timestamp - handle both formats (ISO and space-separated)
+              let utcDate;
+              const timestamp = e.interval_start_utc;
+              if (timestamp.includes('T')) {
+                // Already in ISO format
+                utcDate = new Date(timestamp);
+              } else {
+                // Space-separated format, need to replace
+                utcDate = new Date(timestamp.replace(' ', 'T'));
+              }
+              
+              // Add 1 hour to convert from hour beginning to hour ending
+              const hourEndDate = new Date(utcDate.getTime() + 60 * 60 * 1000);
+              
+              // Convert to Eastern Time and get date string (YYYY-MM-DD format)
+              const etDate = utcDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+              
+              pjmMap[etDate] = pjmMap[etDate] || {};
+              pjmMap[etDate][e.zone] = { 
+                time: hourEndDate, // Store hour ending time
+                mw: parseFloat(e.mw)
+              };
+            } catch (err) {
+              console.error(`Error processing PJM row ${index}:`, err, e);
+            }
+          });
+        }
+        console.log('PJM processing complete. Map has', Object.keys(pjmMap).length, 'dates');
 
-        // Process ERCOT data - convert UTC to CT and extract date  
-        ercotData.forEach(e => {
-          // Parse UTC timestamps
-          const utcStart = new Date(e.interval_start_utc.replace(' ', 'T'));
-          const utcEnd = new Date(e.interval_end_utc.replace(' ', 'T'));
-          // Convert to Central Time and get date string (YYYY-MM-DD format)
-          const ctDate = utcEnd.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
-          
-          const entry = ercotMap[ctDate];
-          const cpValue = parseFloat(e.cp);
-          if (!entry || cpValue > entry.cp) {
-            ercotMap[ctDate] = { 
-              time: utcEnd, 
-              cp: cpValue 
-            };
-          }
-        });
+        // Process ERCOT data - already in local CDT time
+        console.log('Processing ERCOT data...');
+        if (ercotData && Array.isArray(ercotData)) {
+          ercotData.forEach((e, index) => {
+            try {
+              // Check if the entire row exists
+              if (!e) {
+                console.warn(`ERCOT row ${index} is null/undefined:`, e);
+                return;
+              }
+              
+              // Check if interval_start_local exists and is valid
+              if (!e.interval_start_local) {
+                console.warn(`ERCOT row ${index} has missing interval_start_local:`, e);
+                return;
+              }
+              
+              // Parse local timestamp as if it were in Central Time
+              const timestamp = e.interval_start_local;
+              let localDate;
+              
+              if (timestamp.includes('T')) {
+                // Parse as local time by creating a new Date and treating it as Central Time
+                const isoString = timestamp.replace(/[+-]\d{2}:\d{2}$/, ''); // Remove any timezone offset
+                localDate = new Date(isoString + '-05:00'); // Force CDT (-05:00)
+              } else {
+                // Space-separated format
+                const isoString = timestamp.replace(' ', 'T');
+                localDate = new Date(isoString + '-05:00'); // Force CDT (-05:00)
+              }
+              
+              // Extract date string directly from the timestamp (YYYY-MM-DD format)
+              const ctDate = timestamp.slice(0, 10);
+              
+              const cpValue = parseFloat(e.cp);
+              ercotMap[ctDate] = { 
+                time: localDate, 
+                cp: cpValue 
+              };
+            } catch (err) {
+              console.error(`Error processing ERCOT row ${index}:`, err, e);
+            }
+          });
+        }
+        console.log('ERCOT processing complete. Map has', Object.keys(ercotMap).length, 'dates');
 
+        // Function to identify top actual values (top 5 for PJM zones, top 1 for ERCOT per month)
+        function identifyTopActuals(rows, sourceType, zone) {
+          if (!rows.length) return new Set();
+          
+          const topDates = new Set();
+          
+          // Group by month
+          const byMonth = {};
+          rows.forEach(r => {
+            if (r.actualMW > 0) {
+              const month = r.captured_at.slice(0, 7); // YYYY-MM
+              byMonth[month] = byMonth[month] || [];
+              byMonth[month].push(r);
+            }
+          });
+          
+          // For each month, find top values
+          Object.values(byMonth).forEach(monthRows => {
+            monthRows.sort((a, b) => b.actualMW - a.actualMW);
+            const topCount = sourceType === 'ercot' ? 1 : 5;
+            const topRows = monthRows.slice(0, topCount);
+            topRows.forEach(r => topDates.add(r.captured_at.slice(0, 10)));
+          });
+          
+          return topDates;
+        }
+
+        console.log('=== DATA LOADING COMPLETE ===');
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content').style.display = '';
 
+        // CSV Export function
+        function exportToCSV(data, filename) {
+          if (!data || data.length === 0) {
+            alert('No data to export');
+            return;
+          }
+          
+          // Get column headers
+          const headers = Object.keys(data[0]);
+          
+          // Create CSV content
+          let csvContent = headers.join(',') + '\n';
+          
+          data.forEach(row => {
+            const values = headers.map(header => {
+              let value = row[header];
+              // Handle values that might contain commas or quotes
+              if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+                value = '"' + value.replace(/"/g, '""') + '"';
+              }
+              return value;
+            });
+            csvContent += values.join(',') + '\n';
+          });
+          
+          // Create and download file
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          const url = URL.createObjectURL(blob);
+          link.setAttribute('href', url);
+          link.setAttribute('download', filename);
+          link.style.visibility = 'hidden';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+
+        // Function to get filtered data for export
+        function getFilteredData(sourceType) {
+          const start = document.getElementById('start-date').value;
+          const end = document.getElementById('end-date').value;
+          const dayFilter = document.getElementById('day-filter').value;
+          
+          const exportData = [];
+          
+          sources.filter(s => s.type === sourceType).forEach(s => {
+            // Filter and keep only last prediction per day
+            let rows = (allPreds[s.key] || []).filter(r => {
+              const d = r.captured_at.slice(0,10);
+              const dateMatch = (!start || d >= start) && (!end || d <= end);
+              
+              // Day of week filter
+              if (!dateMatch) return false;
+              if (dayFilter === 'ALL') return true;
+              
+              const date = new Date(d + 'T12:00:00');
+              const dayOfWeek = date.getDay();
+              return dayOfWeek === parseInt(dayFilter);
+            });
+            
+            // Keep only the last prediction per day
+            const lastByDay = {};
+            rows.forEach(r => {
+              const day = r.captured_at.slice(0,10);
+              if (!lastByDay[day] || r.captured_at > lastByDay[day].captured_at) {
+                lastByDay[day] = r;
+              }
+            });
+            rows = Object.values(lastByDay)
+              .sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
+            
+            // Attach actuals and process for export
+            rows.forEach(r => {
+              const predDate = r.captured_at.slice(0,10);
+              
+              if (s.type === 'pjm') {
+                const actual = (pjmMap[predDate] || {})[s.zone];
+                if (actual) {
+                  r.actualTime = actual.time;
+                  r.actualMW = actual.mw;
+                } else {
+                  r.actualTime = null;
+                  r.actualMW = 0;
+                }
+              } else { // ERCOT
+                const actual = ercotMap[predDate];
+                if (actual) {
+                  r.actualTime = actual.time;
+                  r.actualMW = actual.cp;
+                } else {
+                  r.actualTime = null;
+                  r.actualMW = 0;
+                }
+              }
+              
+              // Get day of week
+              const date = new Date(r.captured_at.slice(0,10) + 'T12:00:00');
+              const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+              const dayOfWeek = dayNames[date.getDay()];
+              
+              const predTime = `${String(r.day_0_peak_hour % 12 || 12).padStart(2,'0')}:00 ${r.day_0_peak_hour >= 12 ? 'PM' : 'AM'}`;
+              const actualTimeStr = r.actualTime
+                ? r.actualTime.toLocaleTimeString('en-US', {
+                    hour12: true,
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })
+                : 'No Data';
+              
+              const predMW = r.day_0_peak_load * 1000;
+              const actualMW = r.actualMW || 0;
+              const errorMW = actualMW > 0 ? (predMW - actualMW) : null;
+              const errorPct = actualMW > 0 ? ((predMW - actualMW) / actualMW * 100) : null;
+              
+              exportData.push({
+                'Zone': s.label,
+                'Date': r.captured_at.slice(0,10),
+                'Day_of_Week': dayOfWeek,
+                'Predicted_Time': predTime,
+                'Predicted_Load_MW': predMW,
+                'Probability_Percent': r.day_0_probability,
+                'Actual_Peak_Time': actualTimeStr,
+                'Actual_Peak_Load_MW': actualMW > 0 ? actualMW : 'No Data',
+                'Error_MW': errorMW !== null ? errorMW : 'N/A',
+                'Error_Percent': errorPct !== null ? parseFloat(errorPct.toFixed(1)) : 'N/A'
+              });
+            });
+          });
+          
+          return exportData;
+        }
+
         // Debug function
         function addDebugInfo(container, title, data) {
-          const debugMode = document.getElementById('debug-mode').checked;
-          if (!debugMode) return;
-          
-          const debugDiv = document.createElement('div');
-          debugDiv.className = 'debug';
-          debugDiv.innerHTML = `<strong>${title}:</strong><br>${JSON.stringify(data, null, 2)}`;
-          container.appendChild(debugDiv);
+          return; // Debug mode removed
         }
 
         // Render function
         function render() {
+          console.log('=== RENDERING ===');
           const start = document.getElementById('start-date').value;
           const end   = document.getElementById('end-date').value;
           const thr   = +document.getElementById('prob-input').value;
           const sel   = progSel.value;
+          const dayFilter = document.getElementById('day-filter').value;
           const cont  = document.getElementById('content');
           cont.innerHTML = '';
 
-          // Add debug info for data maps
-          if (document.getElementById('debug-mode').checked) {
-            addDebugInfo(cont, 'PJM Data Sample', Object.keys(pjmMap).slice(0, 3).reduce((obj, key) => {
-              obj[key] = pjmMap[key];
-              return obj;
-            }, {}));
-            
-            addDebugInfo(cont, 'ERCOT Data Sample', Object.keys(ercotMap).slice(0, 3).reduce((obj, key) => {
-              obj[key] = ercotMap[key];
-              return obj;
-            }, {}));
-          }
+          // Add debug info for data maps - removed debug mode
 
           sources.forEach(s => {
             if (sel !== 'ALL' && sel !== s.key) return;
@@ -201,7 +462,15 @@
             // Filter and keep only last prediction per day
             let rows = (allPreds[s.key] || []).filter(r => {
               const d = r.captured_at.slice(0,10);
-              return (!start || d >= start) && (!end || d <= end);
+              const dateMatch = (!start || d >= start) && (!end || d <= end);
+              
+              // Day of week filter
+              if (!dateMatch) return false;
+              if (dayFilter === 'ALL') return true;
+              
+              const date = new Date(d + 'T12:00:00'); // Use noon to avoid timezone issues
+              const dayOfWeek = date.getDay();
+              return dayOfWeek === parseInt(dayFilter);
             });
             
             // Keep only the last prediction per day
@@ -242,23 +511,25 @@
               }
             });
 
+            // Identify top actual values for highlighting
+            const topActualDates = identifyTopActuals(rows, s.type, s.zone);
+
             // Build section/table
             const sec = document.createElement('section');
             const h2  = document.createElement('h2');
             const highCount = rows.filter(r => r.day_0_probability >= thr).length;
             const actualCount = rows.filter(r => r.actualMW > 0).length;
-            h2.innerText = `${s.label} (≥${thr}%: ${highCount}, With Actuals: ${actualCount}/${rows.length})`;
+            const topActualCount = Array.from(topActualDates).length;
+            h2.innerText = `${s.label}`;
             sec.appendChild(h2);
 
-            // Add debug info for this source
-            if (document.getElementById('debug-mode').checked) {
-              addDebugInfo(sec, `${s.label} Sample Row`, rows[0] || 'No data');
-            }
+            // Add debug info for this source - removed debug mode
 
             const tbl = document.createElement('table');
             const thead = tbl.createTHead().insertRow();
             [
               'Date',
+              'Day',
               'Pred Time (Hour End ET)',
               'Pred Load (MW)',
               'Prob (%)',
@@ -279,15 +550,25 @@
               const tr = tbody.insertRow();
               if (r.day_0_probability >= thr) tr.classList.add('high-prob');
               
+              // Add yellow highlight for top actual values
+              const rowDate = r.captured_at.slice(0, 10);
+              if (topActualDates.has(rowDate)) {
+                tr.classList.add('top-actual');
+              }
+              
               const predTime = `${String(r.day_0_peak_hour % 12 || 12).padStart(2,'0')}:00 ${r.day_0_peak_hour >= 12 ? 'PM' : 'AM'}`;
               const actualTimeStr = r.actualTime
                 ? r.actualTime.toLocaleTimeString('en-US', {
-                    timeZone: s.type === 'pjm' ? 'America/New_York' : 'America/Chicago',
                     hour12: true,
                     hour: '2-digit',
                     minute: '2-digit'
                   })
                 : 'No Data';
+              
+              // Get day of week
+              const date = new Date(r.captured_at.slice(0,10) + 'T12:00:00');
+              const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+              const dayOfWeek = dayNames[date.getDay()];
               
               const predMW = r.day_0_peak_load * 1000;
               const actualMW = r.actualMW || 0;
@@ -296,6 +577,7 @@
               
               [
                 r.captured_at.slice(0,10),
+                dayOfWeek,
                 predTime,
                 predMW.toLocaleString(),
                 r.day_0_probability,
@@ -315,18 +597,35 @@
         }
 
         // Wire up controls
-        ['prob-input', 'start-date', 'end-date', 'debug-mode'].forEach(id =>
+        ['prob-input', 'start-date', 'end-date', 'day-filter'].forEach(id =>
           document.getElementById(id).addEventListener('change', render)
         );
         progSel.addEventListener('change', render);
 
+        // Wire up export buttons
+        document.getElementById('export-pjm').addEventListener('click', () => {
+          const data = getFilteredData('pjm');
+          const dateStr = new Date().toISOString().slice(0,10);
+          exportToCSV(data, `PJM_Predictions_${dateStr}.csv`);
+        });
+
+        document.getElementById('export-ercot').addEventListener('click', () => {
+          const data = getFilteredData('ercot');
+          const dateStr = new Date().toISOString().slice(0,10);
+          exportToCSV(data, `ERCOT_Predictions_${dateStr}.csv`);
+        });
+
+        console.log('=== INITIAL RENDER ===');
         render();
+        console.log('=== SETUP COMPLETE ===');
+
       } catch (err) {
         document.getElementById('loading').style.display = 'none';
         const e = document.getElementById('error');
         e.innerText = 'Error: ' + err.message;
         e.style.display = '';
-        console.error(err);
+        console.error('Main error:', err);
+        console.error('Stack trace:', err.stack);
       }
     })();
   })();
