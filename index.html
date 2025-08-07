@@ -2,33 +2,45 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Nsight Day‑0 Predictions vs. Actual Daily Peaks</title>
+  <title>Amperon Day-0 Predictions vs. Actual Daily Peaks</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 2rem; background: #f9f9f9; color: #333; }
     h1 { margin-bottom: 1rem; }
     #legend { margin: 1rem 0; font-size: 0.9rem; }
     #legend span { display: inline-block; width: 1rem; height: 1rem; background: #fffa8b; border: 1px solid #ccc; margin-right: 0.5rem; vertical-align: middle; }
     #legend .prob { display: inline-block; width: 1rem; height: 1rem; border: 2px solid red; margin-right: 0.5rem; vertical-align: middle; }
-    #controls { margin-bottom: 1rem; }
+    #controls { margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    #controls label { margin-right: .5rem; }
     section { margin-top: 2rem; padding: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; }
     table { width: 100%; border-collapse: collapse; margin: .5rem 0 1.5rem; }
     th, td { padding: .5rem; border: 1px solid #ccc; text-align: center; }
     th { background: #f0f0f0; }
-    .highlight { background: #fffa8b; }
     .high-prob { outline: 2px solid red; }
     #loading { font-style: italic; color: #666; }
     .error { color: #c00; margin-top: .5rem; }
+    .debug { background: #f0f8ff; padding: 10px; margin: 10px 0; border: 1px solid #ccc; font-family: monospace; font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>Amperon Day‑0 Predictions vs. Actual Daily Peaks</h1>
+  <h1>Amperon Day-0 Predictions vs. Actual Daily Peaks</h1>
   <div id="legend">
-    <span></span> Top 5 Actual Peak Values Each Month
+    <span></span> Top 5 Actual Peak Values Each Month  
     <span class="prob"></span> Predictions ≥ threshold (outlined in red)
   </div>
   <div id="controls">
-    <label for="prob-input">Set Probability Threshold (%): </label>
-    <input type="number" id="prob-input" min="0" max="100" step="1" value="90" style="width: 4rem;" />
+    <label for="program-selector">Program:</label>
+    <select id="program-selector"><option value="ALL">All</option></select>
+
+    <label for="start-date">Start Date:</label>
+    <input type="date" id="start-date" />
+
+    <label for="end-date">End Date:</label>
+    <input type="date" id="end-date" />
+
+    <label for="prob-input">Probability ≥</label>
+    <input type="number" id="prob-input" min="0" max="100" step="1" value="93" style="width:4rem;" />
+
+    <label><input type="checkbox" id="debug-mode" /> Debug Mode</label>
   </div>
   <div id="loading">Loading data…</div>
   <div id="error" class="error" style="display:none;"></div>
@@ -36,154 +48,287 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
-  (async () => {
-    try {
-      const SUPABASE_URL   = 'https://univbemvihlcincvqwpz.supabase.co';
-      const SUPABASE_ANON  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM';
-      const GRID_KEY       = 'bda3a30f30804e22a62e4637700bab54';
-      const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-
-      const sources = [
-        { table: 'peak_snapshots_pjm_5cp_plc',           label: 'PJM RTO',  type: 'pjm', apiKey: 'load.pjm_rto' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label: 'AECO',     type: 'pjm', apiKey: 'load.ae' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label: 'AEP',      type: 'pjm', apiKey: 'load.aep' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label: 'BGE',      type: 'pjm', apiKey: 'load.bc' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label: 'COMED',    type: 'pjm', apiKey: 'load.comed' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_dpl',  label: 'DPL',      type: 'pjm', apiKey: 'load.dpl' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_peco', label: 'PECO',     type: 'pjm', apiKey: 'load.pe' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_ppl',  label: 'PPL',      type: 'pjm', apiKey: 'load.pl' },
-        { table: 'peak_snapshots_pjm_5cp_nits_pjm_lz_pseg', label: 'PSEG',     type: 'pjm', apiKey: 'load.ps' },
-        { table: 'peak_snapshots_ercot_4cp',               label: 'ERCOT',    type: 'ercot' }
-      ];
-
-      // 1) Fetch predictions
-      const allPreds = {}, allDates = new Set();
-      for (const src of sources) {
-        const { data, error } = await supabaseClient
-          .from(src.table)
-          .select('captured_at, day_0_peak_hour, day_0_peak_load, day_0_probability')
-          .order('captured_at');
-        if (error) throw error;
-        allPreds[src.table] = data;
-        data.forEach(r => allDates.add(r.captured_at.slice(0,10)));
-      }
-
-      // create date window
-      const dates = Array.from(allDates).sort();
-      const start = dates[0] + 'T12:00:00';
-      const end   = dates[dates.length-1] + 'T21:00:00';
-
-      // 2) Fetch PJM
-      const pjData = await fetch(
-        `https://api.gridstatus.io/v1/datasets/pjm_standardized_hourly/query` +
-        `?start_time=${start}&end_time=${end}&timezone=market`,
-        { headers:{ 'x-api-key': GRID_KEY } }
-      ).then(r => r.json());
-      const pjMap = {};
-      (pjData.data || []).forEach(e => {
-        const d = e.interval_end_local.slice(0,10);
-        (pjMap[d] = pjMap[d]||[]).push(e);
-      });
-
-      // delay then ERCOT
-      await new Promise(r => setTimeout(r,1100));
-      const erData = await fetch(
-        `https://api.gridstatus.io/v1/datasets/ercot_estimated_coincident_peak_load/query` +
-        `?start_time=${start}&end_time=${end}&timezone=market`,
-        { headers:{ 'x-api-key': GRID_KEY } }
-      ).then(r => r.json());
-      const erMap = {};
-      (erData.data || []).forEach(e => {
-        e.cp = e.internal_generation + e.dc_tie_imports - e.dc_tie_exports - e.wholesale_storage_load;
-        const d = e.interval_end_local.slice(0,10);
-        (erMap[d] = erMap[d]||[]).push(e);
-      });
-
-      // attach actuals & compute highlights
-      for (const src of sources) {
-        const rows = allPreds[src.table];
-        const byMonth = {};
-        rows.forEach(r => {
-          const d = r.captured_at.slice(0,10);
-          const recs = src.type==='pjm'? pjMap[d]||[] : erMap[d]||[];
-          const key = src.type==='pjm'? src.apiKey : 'cp';
-          let best = recs[0]||{};
-          recs.forEach(e => { if ((e[key]||0) > (best[key]||0)) best = e; });
-          r.actualPeak     = best[key]||0;
-          r.actualInterval = best.interval_end_local||'';
-          if (src.type==='ercot') {
-            r.internal_gen = best.internal_generation||0;
-            r.estimated_cp = best.estimated_cp_load||0;
-            r.estimated_gen = best.estimated_cp_load_using_gen||0;
-          }
-          const month = r.captured_at.slice(0,7);
-          (byMonth[month] = byMonth[month]||[]).push(r);
-        });
-        src.highlights = new Set();
-        Object.values(byMonth).forEach(arr => {
-          arr.sort((a,b) => b.actualPeak - a.actualPeak);
-          arr.slice(0,5).forEach(r => src.highlights.add(r.captured_at));
-        });
-      }
-
-      // render tables with dynamic prob threshold
-      const content = document.getElementById('content');
-      const probInput = document.getElementById('prob-input');
-      function render() {
-        content.innerHTML = '';
-        const threshold = Number(probInput.value) || 0;
-        sources.forEach(src => {
-          const rows = allPreds[src.table];
-          if (!rows.length) return;
-          // count above threshold
-          const countHigh = rows.filter(r => r.day_0_probability >= threshold).length;
-          const sec = document.createElement('section');
-          const h2 = document.createElement('h2');
-          h2.innerText = `${src.label} (≥${threshold}%: ${countHigh})`;
-          sec.appendChild(h2);
-
-          const tbl = document.createElement('table');
-          const thead = tbl.createTHead(); const hdr = thead.insertRow();
-          const headers = ['Date','Pred. Peak Time (Hour End)','Pred. Load (MW)','Probability (%)'];
-          if (src.type==='ercot') headers.push('Int. Gen (MW)','Est. CP Load (MW)','Est. CP w/ Gen (MW)');
-          headers.push('Act. Peak Time (Interval End)','Act. Peak (MW)');
-          headers.forEach(txt => { const th = document.createElement('th'); th.innerText = txt; hdr.appendChild(th); });
-
-          const tbody = tbl.createTBody();
-          rows.forEach(r => {
-            const tr = tbody.insertRow();
-            if (src.highlights.has(r.captured_at)) tr.classList.add('highlight');
-            if (r.day_0_probability >= threshold) tr.classList.add('high-prob');
-            const cells = [];
-            cells.push(
-              r.captured_at.slice(0,10),
-              `${String(r.day_0_peak_hour%12||12).padStart(2,'0')}:00 ${r.day_0_peak_hour>=12?'PM':'AM'} ${src.type==='pjm'?'ET':'CT'}`,
-              Number(r.day_0_peak_load)*1000,
-              Number(r.day_0_probability)
-            );
-            if (src.type==='ercot') cells.push(r.internal_gen, r.estimated_cp, r.estimated_gen);
-            cells.push(
-              r.actualInterval? new Date(r.actualInterval).toLocaleTimeString('en-US',{timeZone:src.type==='pjm'?'America/New_York':'America/Chicago',hour12:true,hour:'2-digit',minute:'2-digit'}) : '',
-              r.actualPeak
-            );
-            cells.forEach(val => { const td = tr.insertCell(); td.innerText = typeof val==='number' ? val.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3}) : val; });
-          });
-
-          sec.appendChild(tbl);
-          content.appendChild(sec);
-        });
-      }
-      probInput.addEventListener('input', render);
-      render();
-      document.getElementById('loading').style.display = 'none';
-      content.style.display = '';
-
-    } catch(err) {
-      document.getElementById('loading').style.display = 'none';
-      const e = document.getElementById('error');
-      e.innerText = 'Error: '+err.message;
-      e.style.display = '';
+  (function waitForSupabase() {
+    if (typeof supabase === 'undefined') {
+      setTimeout(waitForSupabase, 100);
+      return;
     }
+    (async () => {
+      try {
+        // Supabase clients (full anon keys)
+        const peaksClient = supabase.createClient(
+          'https://univbemvihlcincvqwpz.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM'
+        );
+        const loadsClient = supabase.createClient(
+          'https://jlmdkdeyemtbuoqzhmnk.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsbWRrZGV5ZW10YnVvcXpobW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMzODczNzUsImV4cCI6MjA2ODk2MzM3NX0.D67p_so_Tkok6wCAt4_2w6xqVcrEC9wYnyohe0E7huc'
+        );
+
+        // Programs + zone codes mapping
+        const sources = [
+          { key:'peak_snapshots_pjm_5cp_plc',              label:'PJM RTO',    zone:'RTO',    type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_aeco', label:'AECO',       zone:'AE',     type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_aep',  label:'AEP',        zone:'AEP',    type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_bge',  label:'BGE',        zone:'BC',     type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_comed',label:'COMED',      zone:'CE',     type:'pjm' }, // Fixed: was 'COMED', should be 'CE'
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_dpl',  label:'DPL',        zone:'DPL',    type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_peco', label:'PECO',       zone:'PE',     type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_ppl',  label:'PPL',        zone:'PL',     type:'pjm' },
+          { key:'peak_snapshots_pjm_5cp_nits_pjm_lz_pseg', label:'PSEG',       zone:'PS',     type:'pjm' },
+          { key:'peak_snapshots_ercot_4cp',                label:'ERCOT 4CP',  zone:'ERCOT', type:'ercot' }
+        ];
+
+        // Populate program selector
+        const progSel = document.getElementById('program-selector');
+        sources.forEach(s => {
+          const o = document.createElement('option');
+          o.value = s.key;
+          o.text  = s.label;
+          progSel.add(o);
+        });
+
+        // 1) Fetch Day-0 predictions
+        const allPreds = {}, dateSet = new Set();
+        for (const s of sources) {
+          const { data, error } = await peaksClient
+            .from(s.key)
+            .select('captured_at, day_0_peak_hour, day_0_peak_load, day_0_probability')
+            .order('captured_at');
+          if (error) throw error;
+          allPreds[s.key] = data;
+          data.forEach(r => dateSet.add(r.captured_at.slice(0,10)));
+        }
+
+        // initialize date inputs
+        const dates = Array.from(dateSet).sort();
+        document.getElementById('start-date').value = dates[0];
+        document.getElementById('end-date').value   = dates[dates.length-1];
+
+        // 2) Fetch PJM actual daily peaks
+        const { data: pjmData, error: pjmErr } = await loadsClient
+          .from('pjm_daily_max')
+          .select('interval_start_utc, zone, mw')
+          .gte('interval_start_utc', `${dates[0]} 00:00:00+00`)
+          .lte('interval_start_utc', `${dates[dates.length-1]} 23:59:59+00`)
+          .order('interval_start_utc');
+        if (pjmErr) throw pjmErr;
+
+        // 3) Fetch ERCOT 15-min to find daily max cp
+        const { data: ercotData, error: ercErr } = await loadsClient
+          .from('gridstatus_ercot_15min')
+          .select('interval_start_utc, interval_end_utc, cp')
+          .gte('interval_start_utc', `${dates[0]} 00:00:00+00`)
+          .lte('interval_start_utc', `${dates[dates.length-1]} 23:59:59+00`)
+          .order('interval_start_utc');
+        if (ercErr) throw ercErr;
+
+        // Build maps of actuals with improved date handling
+        const pjmMap   = {};
+        const ercotMap = {};
+        
+        // Process PJM data - convert UTC to ET and extract date
+        pjmData.forEach(e => {
+          // Parse UTC timestamp
+          const utcDate = new Date(e.interval_start_utc.replace(' ', 'T'));
+          // Convert to Eastern Time and get date string (YYYY-MM-DD format)
+          const etDate = utcDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+          
+          pjmMap[etDate] = pjmMap[etDate] || {};
+          pjmMap[etDate][e.zone] = { 
+            time: utcDate, 
+            mw: parseFloat(e.mw)
+          };
+        });
+
+        // Process ERCOT data - convert UTC to CT and extract date  
+        ercotData.forEach(e => {
+          // Parse UTC timestamps
+          const utcStart = new Date(e.interval_start_utc.replace(' ', 'T'));
+          const utcEnd = new Date(e.interval_end_utc.replace(' ', 'T'));
+          // Convert to Central Time and get date string (YYYY-MM-DD format)
+          const ctDate = utcEnd.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+          
+          const entry = ercotMap[ctDate];
+          const cpValue = parseFloat(e.cp);
+          if (!entry || cpValue > entry.cp) {
+            ercotMap[ctDate] = { 
+              time: utcEnd, 
+              cp: cpValue 
+            };
+          }
+        });
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = '';
+
+        // Debug function
+        function addDebugInfo(container, title, data) {
+          const debugMode = document.getElementById('debug-mode').checked;
+          if (!debugMode) return;
+          
+          const debugDiv = document.createElement('div');
+          debugDiv.className = 'debug';
+          debugDiv.innerHTML = `<strong>${title}:</strong><br>${JSON.stringify(data, null, 2)}`;
+          container.appendChild(debugDiv);
+        }
+
+        // Render function
+        function render() {
+          const start = document.getElementById('start-date').value;
+          const end   = document.getElementById('end-date').value;
+          const thr   = +document.getElementById('prob-input').value;
+          const sel   = progSel.value;
+          const cont  = document.getElementById('content');
+          cont.innerHTML = '';
+
+          // Add debug info for data maps
+          if (document.getElementById('debug-mode').checked) {
+            addDebugInfo(cont, 'PJM Data Sample', Object.keys(pjmMap).slice(0, 3).reduce((obj, key) => {
+              obj[key] = pjmMap[key];
+              return obj;
+            }, {}));
+            
+            addDebugInfo(cont, 'ERCOT Data Sample', Object.keys(ercotMap).slice(0, 3).reduce((obj, key) => {
+              obj[key] = ercotMap[key];
+              return obj;
+            }, {}));
+          }
+
+          sources.forEach(s => {
+            if (sel !== 'ALL' && sel !== s.key) return;
+
+            // Filter and keep only last prediction per day
+            let rows = (allPreds[s.key] || []).filter(r => {
+              const d = r.captured_at.slice(0,10);
+              return (!start || d >= start) && (!end || d <= end);
+            });
+            
+            // Keep only the last prediction per day
+            const lastByDay = {};
+            rows.forEach(r => {
+              const day = r.captured_at.slice(0,10);
+              if (!lastByDay[day] || r.captured_at > lastByDay[day].captured_at) {
+                lastByDay[day] = r;
+              }
+            });
+            rows = Object.values(lastByDay)
+              .sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
+            
+            if (!rows.length) return;
+
+            // Attach actuals with improved date matching
+            rows.forEach(r => {
+              const predDate = r.captured_at.slice(0,10); // YYYY-MM-DD format
+              
+              if (s.type === 'pjm') {
+                const actual = (pjmMap[predDate] || {})[s.zone];
+                if (actual) {
+                  r.actualTime = actual.time;
+                  r.actualMW = actual.mw;
+                } else {
+                  r.actualTime = null;
+                  r.actualMW = 0;
+                }
+              } else { // ERCOT
+                const actual = ercotMap[predDate];
+                if (actual) {
+                  r.actualTime = actual.time;
+                  r.actualMW = actual.cp;
+                } else {
+                  r.actualTime = null;
+                  r.actualMW = 0;
+                }
+              }
+            });
+
+            // Build section/table
+            const sec = document.createElement('section');
+            const h2  = document.createElement('h2');
+            const highCount = rows.filter(r => r.day_0_probability >= thr).length;
+            const actualCount = rows.filter(r => r.actualMW > 0).length;
+            h2.innerText = `${s.label} (≥${thr}%: ${highCount}, With Actuals: ${actualCount}/${rows.length})`;
+            sec.appendChild(h2);
+
+            // Add debug info for this source
+            if (document.getElementById('debug-mode').checked) {
+              addDebugInfo(sec, `${s.label} Sample Row`, rows[0] || 'No data');
+            }
+
+            const tbl = document.createElement('table');
+            const thead = tbl.createTHead().insertRow();
+            [
+              'Date',
+              'Pred Time (Hour End ET)',
+              'Pred Load (MW)',
+              'Prob (%)',
+              s.type === 'pjm'
+                ? 'Actual Peak Time (ET)'
+                : 'Actual Peak Time (CT)',
+              'Actual Peak Load (MW)',
+              'Error (MW)',
+              'Error %'
+            ].forEach(txt => {
+              const th = document.createElement('th');
+              th.innerText = txt;
+              thead.appendChild(th);
+            });
+
+            const tbody = tbl.createTBody();
+            rows.forEach(r => {
+              const tr = tbody.insertRow();
+              if (r.day_0_probability >= thr) tr.classList.add('high-prob');
+              
+              const predTime = `${String(r.day_0_peak_hour % 12 || 12).padStart(2,'0')}:00 ${r.day_0_peak_hour >= 12 ? 'PM' : 'AM'}`;
+              const actualTimeStr = r.actualTime
+                ? r.actualTime.toLocaleTimeString('en-US', {
+                    timeZone: s.type === 'pjm' ? 'America/New_York' : 'America/Chicago',
+                    hour12: true,
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })
+                : 'No Data';
+              
+              const predMW = r.day_0_peak_load * 1000;
+              const actualMW = r.actualMW || 0;
+              const errorMW = actualMW > 0 ? (predMW - actualMW) : null;
+              const errorPct = actualMW > 0 ? ((predMW - actualMW) / actualMW * 100) : null;
+              
+              [
+                r.captured_at.slice(0,10),
+                predTime,
+                predMW.toLocaleString(),
+                r.day_0_probability,
+                actualTimeStr,
+                actualMW > 0 ? actualMW.toLocaleString() : 'No Data',
+                errorMW !== null ? errorMW.toLocaleString() : 'N/A',
+                errorPct !== null ? errorPct.toFixed(1) + '%' : 'N/A'
+              ].forEach(val => {
+                const td = tr.insertCell();
+                td.innerText = val;
+              });
+            });
+
+            sec.appendChild(tbl);
+            cont.appendChild(sec);
+          });
+        }
+
+        // Wire up controls
+        ['prob-input', 'start-date', 'end-date', 'debug-mode'].forEach(id =>
+          document.getElementById(id).addEventListener('change', render)
+        );
+        progSel.addEventListener('change', render);
+
+        render();
+      } catch (err) {
+        document.getElementById('loading').style.display = 'none';
+        const e = document.getElementById('error');
+        e.innerText = 'Error: ' + err.message;
+        e.style.display = '';
+        console.error(err);
+      }
+    })();
   })();
   </script>
 </body>
