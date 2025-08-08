@@ -4,74 +4,424 @@
   <meta charset="UTF-8" />
   <title>Nsight Predictions vs Actual Peaks</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 2rem; background: #f9f9f9; color: #333; }
-    h1 { margin-bottom: 1rem; }
-    #legend { margin: 1rem 0; font-size: 0.9rem; }
-    #legend span { display: inline-block; width: 1rem; height: 1rem; background: #fffa8b; border: 1px solid #ccc; margin-right: 0.5rem; vertical-align: middle; }
-    #legend .prob { display: inline-block; width: 1rem; height: 1rem; border: 2px solid red; margin-right: 0.5rem; vertical-align: middle; }
-    #controls { margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
-    #controls label { margin-right: .5rem; }
-    section { margin-top: 2rem; padding: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; }
-    table { width: 100%; border-collapse: collapse; margin: .5rem 0 1.5rem; }
-    th, td { padding: .5rem; border: 1px solid #ccc; text-align: center; }
-    th { background: #f0f0f0; }
-    .high-prob { outline: 2px solid red; }
-    .top-actual { background-color: #fffa8b !important; }
-    #loading { font-style: italic; color: #666; }
-    .error { color: #c00; margin-top: .5rem; }
-    .debug { background: #f0f8ff; padding: 10px; margin: 10px 0; border: 1px solid #ccc; font-family: monospace; font-size: 12px; }
-    .export-btn { margin-left: 1rem; padding: 0.5rem 1rem; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    .export-btn:hover { opacity: 0.8; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body { 
+      font-family: Arial, sans-serif; 
+      background-color: #f5f5f5; 
+      color: #333;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Navigation Sidebar */
+    .sidebar {
+      width: 250px;
+      background: linear-gradient(135deg, #8DB843 0%, #6B9532 100%);
+      color: white;
+      position: fixed;
+      height: 100vh;
+      left: 0;
+      top: 0;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      z-index: 1000;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 1.5rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      background: rgba(0,0,0,0.1);
+    }
+
+    .sidebar-title {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: white;
+      text-decoration: none;
+    }
+
+    .nav-menu {
+      padding: 1rem 0;
+    }
+
+    .nav-item {
+      display: block;
+      padding: 0.75rem 1.5rem;
+      color: rgba(255,255,255,0.9);
+      text-decoration: none;
+      transition: all 0.3s ease;
+      border-left: 3px solid transparent;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border-left-color: #fff;
+    }
+
+    .nav-item.active {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border-left-color: #fff;
+      font-weight: 500;
+    }
+
+    /* Main Content */
+    .main-content {
+      margin-left: 250px;
+      padding: 2rem;
+      width: calc(100% - 250px);
+    }
+
+    h1 { 
+      color: #495057;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+
+    #legend { 
+      margin: 1rem 0; 
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    #legend span { 
+      display: inline-block; 
+      width: 1rem; 
+      height: 1rem; 
+      background: #fffa8b; 
+      border: 1px solid #e0e0e0; 
+      margin-right: 0.5rem; 
+      vertical-align: middle; 
+    }
+
+    #legend .prob { 
+      display: inline-block; 
+      width: 1rem; 
+      height: 1rem; 
+      border: 2px solid #D63031; 
+      margin-right: 0.5rem; 
+      vertical-align: middle; 
+    }
+
+    /* Controls Section */
+    .controls-section {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    #controls { 
+      display: flex; 
+      gap: 1.5rem; 
+      align-items: center; 
+      flex-wrap: wrap; 
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .control-group label { 
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #495057;
+    }
+
+    .control-input {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: #fff;
+      color: #495057;
+      transition: border-color 0.2s ease;
+    }
+
+    .control-input:focus {
+      outline: none;
+      border-color: #8DB843;
+      box-shadow: 0 0 0 2px rgba(141, 184, 67, 0.1);
+    }
+
+    .export-buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+    }
+
+    .export-btn { 
+      padding: 0.5rem 1rem; 
+      color: white; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .export-btn:hover { 
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    .export-btn.pjm {
+      background: linear-gradient(135deg, #007cba 0%, #005a87 100%);
+    }
+
+    .export-btn.ercot {
+      background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+    }
+
+    section { 
+      margin-top: 2rem; 
+      padding: 1.5rem; 
+      background: #fff; 
+      border: 1px solid #e0e0e0; 
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    section h2 {
+      color: #495057;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      font-size: 1.1rem;
+    }
+
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin: .5rem 0 1.5rem; 
+    }
+
+    th, td { 
+      padding: .75rem .5rem; 
+      border: 1px solid #e0e0e0; 
+      text-align: center; 
+    }
+
+    th { 
+      background: #f8f9fa;
+      color: #495057;
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+
+    tr:hover {
+      background: #f0f0f0;
+    }
+
+    .high-prob { 
+      outline: 2px solid #D63031; 
+    }
+
+    .top-actual { 
+      background-color: #fffa8b !important; 
+    }
+
+    #loading { 
+      font-style: italic; 
+      color: #6c757d;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .error { 
+      color: #D63031;
+      margin-top: .5rem;
+      background: #fff5f5;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+      }
+      
+      .main-content {
+        margin-left: 0;
+        width: 100%;
+      }
+      
+      #controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+      }
+      
+      .control-group {
+        width: 100%;
+      }
+      
+      .export-buttons {
+        margin-left: 0;
+        margin-top: 1rem;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>Nsight Predictions vs Actual Peaks</h1>
-  <div id="legend">
-    <span></span> Highest Loads (5/month PJM, 1/month ERCOT)
-    <span class="prob"></span> Predictions ≥ threshold (outlined in red)
+  <!-- Left Navigation Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <a href="#" class="sidebar-title">CP Dashboard</a>
+    </div>
+    <div class="nav-menu">
+      <a href="https://ndustrialinternal.github.io/amp-cp-alerts/" class="nav-item">CP Predictions</a>
+      <a href="https://ndustrialinternal.github.io/cp-peaks/" class="nav-item">CP Peaks</a>
+      <a href="https://ndustrialinternal.github.io/current-cp-loads/" class="nav-item">Load Profiles</a>
+      <a href="https://ndustrialinternal.github.io/cp-pred-analysis/" class="nav-item active">Prediction Analytics</a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <h1>Nsight Predictions vs Actual Peaks</h1>
+    
+    <div id="legend">
+      <span></span> Highest Loads (5/month PJM, 1/month ERCOT)
+      <span class="prob"></span> Predictions ≥ threshold (outlined in red)
+    </div>
+    
+    <div class="controls-section">
+      <div id="controls">
+        <div class="control-group">
+          <label for="program-selector">Program</label>
+          <select id="program-selector" class="control-input">
+            <option value="ALL">All</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="start-date">Start Date</label>
+          <input type="date" id="start-date" class="control-input" />
+        </div>
+
+        <div class="control-group">
+          <label for="end-date">End Date</label>
+          <input type="date" id="end-date" class="control-input" />
+        </div>
+
+        <div class="control-group">
+          <label for="prob-input">Probability ≥</label>
+          <input type="number" id="prob-input" min="0" max="100" step="1" value="93" class="control-input" style="width:5rem;" />
+        </div>
+
+        <div class="control-group">
+          <label for="day-filter">Day of Week</label>
+          <select id="day-filter" class="control-input">
+            <option value="ALL">All Days</option>
+            <option value="0">Sunday</option>
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+
+        <div class="export-buttons">
+          <button id="export-pjm" class="export-btn pjm">Export PJM CSV</button>
+          <button id="export-ercot" class="export-btn ercot">Export ERCOT CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading">Loading data…</div>
+    <div id="error" class="error" style="display:none;"></div>
+    <div id="content" style="display:none;"></div>
   </div>
-  <div id="controls">
-    <label for="program-selector">Program:</label>
-    <select id="program-selector"><option value="ALL">All</option></select>
 
-    <label for="start-date">Start Date:</label>
-    <input type="date" id="start-date" />
-
-    <label for="end-date">End Date:</label>
-    <input type="date" id="end-date" />
-
-    <label for="prob-input">Probability ≥</label>
-    <input type="number" id="prob-input" min="0" max="100" step="1" value="93" style="width:4rem;" />
-
-    <label for="day-filter">Day of Week:</label>
-    <select id="day-filter">
-      <option value="ALL">All Days</option>
-      <option value="0">Sunday</option>
-      <option value="1">Monday</option>
-      <option value="2">Tuesday</option>
-      <option value="3">Wednesday</option>
-      <option value="4">Thursday</option>
-      <option value="5">Friday</option>
-      <option value="6">Saturday</option>
-    </select>
-
-    <button id="export-pjm" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer;">Export PJM CSV</button>
-    <button id="export-ercot" style="padding: 0.5rem 1rem; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Export ERCOT CSV</button>
-  </div>
-  <div id="loading">Loading data…</div>
-  <div id="error" class="error" style="display:none;"></div>
-  <div id="content" style="display:none;"></div>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
-  (function waitForSupabase() {
-    if (typeof supabase === 'undefined') {
-      setTimeout(waitForSupabase, 100);
-      return;
-    }
-    (async () => {
+    console.log('Script loaded');
+    
+    // Set default dates immediately
+    function setDefaultDates() {
       try {
-        // Supabase clients (full anon keys)
+        const today = new Date();
+        const previousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastDayPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        
+        const startDate = previousMonth.toISOString().slice(0, 10);
+        const endDate = lastDayPrevMonth.toISOString().slice(0, 10);
+        
+        console.log('Setting default dates:', startDate, 'to', endDate);
+        
+        document.getElementById('start-date').value = startDate;
+        document.getElementById('end-date').value = endDate;
+        
+        console.log('Default dates set successfully');
+      } catch (err) {
+        console.error('Error setting default dates:', err);
+      }
+    }
+    
+    // Call immediately
+    setDefaultDates();
+    
+    // Also set on DOM ready as backup
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', setDefaultDates);
+    }
+    
+    console.log('Basic setup complete, now loading Supabase...');
+  </script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onload="console.log('Supabase script loaded')" onerror="console.error('Failed to load Supabase script')"></script>
+  
+  <script>
+    console.log('Final script executing...');
+    
+    function initApp() {
+      console.log('InitApp called');
+      
+      if (typeof supabase === 'undefined') {
+        console.error('Supabase is not available');
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').innerHTML = 'Failed to load required libraries. Please refresh the page.';
+        document.getElementById('error').style.display = '';
+        return;
+      }
+      
+      console.log('Supabase is available, starting main application...');
+      
+      // Start the actual application
+      startApplication();
+    }
+    
+    async function startApplication() {
+      try {
+        console.log('Starting application...');
+        
+        // Supabase clients
         const peaksClient = supabase.createClient(
           'https://univbemvihlcincvqwpz.supabase.co',
           'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVuaXZiZW12aWhsY2luY3Zxd3B6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5NjM1MzYsImV4cCI6MjA2NjUzOTUzNn0.qLq66dTzf_ATHfBDKyRU5PIwKX5Sj0-2yP-1ceFFAzM'
@@ -80,6 +430,8 @@
           'https://jlmdkdeyemtbuoqzhmnk.supabase.co',
           'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsbWRrZGV5ZW10YnVvcXpobW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMzODczNzUsImV4cCI6MjA2ODk2MzM3NX0.D67p_so_Tkok6wCAt4_2w6xqVcrEC9wYnyohe0E7huc'
         );
+
+        console.log('Supabase clients created');
 
         // Programs + zone codes mapping
         const sources = [
@@ -104,176 +456,135 @@
           progSel.add(o);
         });
 
-        // 1) Fetch Day-0 predictions
+        console.log('Program selector populated');
+
+        // Fetch predictions data
         console.log('=== FETCHING PREDICTIONS ===');
-        const allPreds = {}, dateSet = new Set();
+        const allPreds = {};
+        
         for (const s of sources) {
           console.log(`Fetching predictions for ${s.label}...`);
           const { data, error } = await peaksClient
             .from(s.key)
             .select('captured_at, day_0_peak_hour, day_0_peak_load, day_0_probability')
             .order('captured_at');
-          if (error) throw error;
+          
+          if (error) {
+            console.error(`Error fetching ${s.label}:`, error);
+            throw error;
+          }
+          
           allPreds[s.key] = data || [];
           console.log(`${s.label} predictions:`, data?.length || 0, 'rows');
-          
-          // Process dates safely
-          if (data && data.length > 0) {
-            console.log(`${s.label} first prediction:`, JSON.stringify(data[0], null, 2));
-            data.forEach((r, idx) => {
-              try {
-                if (r?.captured_at && typeof r.captured_at === 'string') {
-                  dateSet.add(r.captured_at.slice(0,10));
-                } else {
-                  console.warn(`Invalid prediction row ${idx} in ${s.label}:`, r);
-                }
-              } catch (err) {
-                console.error(`Error processing prediction row ${idx} in ${s.label}:`, err, r);
-              }
-            });
-          }
         }
 
-        console.log('All predictions fetched. DateSet size:', dateSet.size);
-        console.log('DateSet values:', Array.from(dateSet).sort().slice(0, 5));
+        console.log('All predictions fetched successfully');
 
-        // initialize date inputs
-        const dates = Array.from(dateSet).sort();
-        console.log('Sorted dates for queries:', dates.slice(0, 5), '...', dates.slice(-2));
-        
-        if (dates.length === 0) {
-          throw new Error('No valid dates found in predictions data');
-        }
-        
-        document.getElementById('start-date').value = dates[0];
-        document.getElementById('end-date').value   = dates[dates.length-1];
+        // Get date range from the default dates we already set
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
 
-        console.log('Date range for queries:', dates[0], 'to', dates[dates.length-1]);
+        console.log('Using date range:', startDate, 'to', endDate);
 
-        // 2) Fetch PJM actual daily peaks
+        // Fetch PJM actual data
         console.log('=== FETCHING PJM DATA ===');
         const { data: pjmData, error: pjmErr } = await loadsClient
           .from('pjm_daily_max')
           .select('interval_start_utc, zone, mw')
-          .gte('interval_start_utc', `${dates[0]} 00:00:00+00`)
-          .lte('interval_start_utc', `${dates[dates.length-1]} 23:59:59+00`)
+          .gte('interval_start_utc', `${startDate} 00:00:00+00`)
+          .lte('interval_start_utc', `${endDate} 23:59:59+00`)
           .order('interval_start_utc');
-        if (pjmErr) throw pjmErr;
+        
+        if (pjmErr) {
+          console.error('PJM data error:', pjmErr);
+          throw pjmErr;
+        }
+        
+        console.log('PJM data fetched:', pjmData?.length || 0, 'rows');
 
-        console.log('PJM data sample:', pjmData?.slice(0, 3));
-        console.log('PJM data length:', pjmData?.length);
-        console.log('PJM first row detailed:', JSON.stringify(pjmData?.[0], null, 2));
-
-        // 3) Fetch ERCOT daily max cp
+        // Fetch ERCOT actual data
         console.log('=== FETCHING ERCOT DATA ===');
         const { data: ercotData, error: ercErr } = await loadsClient
           .from('ercot_daily_max')
           .select('interval_start_local, cp')
-          .gte('interval_start_local', `${dates[0]} 00:00:00`)
-          .lte('interval_start_local', `${dates[dates.length-1]} 23:59:59`)
+          .gte('interval_start_local', `${startDate} 00:00:00`)
+          .lte('interval_start_local', `${endDate} 23:59:59`)
           .order('interval_start_local');
-        if (ercErr) throw ercErr;
+        
+        if (ercErr) {
+          console.error('ERCOT data error:', ercErr);
+          throw ercErr;
+        }
+        
+        console.log('ERCOT data fetched:', ercotData?.length || 0, 'rows');
 
-        console.log('ERCOT data sample:', ercotData?.slice(0, 3));
-        console.log('ERCOT data length:', ercotData?.length);
-        console.log('ERCOT first row detailed:', JSON.stringify(ercotData?.[0], null, 2));
-
-        // Build maps of actuals with improved date handling
-        console.log('=== PROCESSING ACTUAL DATA ===');
-        const pjmMap   = {};
+        // Process the data and create data maps (simplified for now)
+        const pjmMap = {};
         const ercotMap = {};
 
-        // Process PJM data - convert UTC to ET and extract date
-        console.log('Processing PJM data...');
+        // Process PJM data
         if (pjmData && Array.isArray(pjmData)) {
           pjmData.forEach((e, index) => {
             try {
-              // Check if the entire row exists
-              if (!e) {
-                console.warn(`PJM row ${index} is null/undefined:`, e);
-                return;
-              }
+              if (!e || !e.interval_start_utc) return;
               
-              // Check if interval_start_utc exists and is valid
-              if (!e.interval_start_utc) {
-                console.warn(`PJM row ${index} has missing interval_start_utc:`, e);
-                return;
-              }
-              
-              // Parse UTC timestamp - handle both formats (ISO and space-separated)
-              let utcDate;
               const timestamp = e.interval_start_utc;
+              let utcDate;
               if (timestamp.includes('T')) {
-                // Already in ISO format
                 utcDate = new Date(timestamp);
               } else {
-                // Space-separated format, need to replace
                 utcDate = new Date(timestamp.replace(' ', 'T'));
               }
               
-              // Add 1 hour to convert from hour beginning to hour ending
               const hourEndDate = new Date(utcDate.getTime() + 60 * 60 * 1000);
-              
-              // Convert to Eastern Time and get date string (YYYY-MM-DD format)
               const etDate = utcDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
               
               pjmMap[etDate] = pjmMap[etDate] || {};
               pjmMap[etDate][e.zone] = { 
-                time: hourEndDate, // Store hour ending time
+                time: hourEndDate,
                 mw: parseFloat(e.mw)
               };
             } catch (err) {
-              console.error(`Error processing PJM row ${index}:`, err, e);
+              console.error(`Error processing PJM row ${index}:`, err);
             }
           });
         }
-        console.log('PJM processing complete. Map has', Object.keys(pjmMap).length, 'dates');
 
-        // Process ERCOT data - already in local CDT time
-        console.log('Processing ERCOT data...');
+        // Process ERCOT data
         if (ercotData && Array.isArray(ercotData)) {
           ercotData.forEach((e, index) => {
             try {
-              // Check if the entire row exists
-              if (!e) {
-                console.warn(`ERCOT row ${index} is null/undefined:`, e);
-                return;
-              }
+              if (!e || !e.interval_start_local) return;
               
-              // Check if interval_start_local exists and is valid
-              if (!e.interval_start_local) {
-                console.warn(`ERCOT row ${index} has missing interval_start_local:`, e);
-                return;
-              }
-              
-              // Parse local timestamp as if it were in Central Time
               const timestamp = e.interval_start_local;
-              let localDate;
-              
-              if (timestamp.includes('T')) {
-                // Parse as local time by creating a new Date and treating it as Central Time
-                const isoString = timestamp.replace(/[+-]\d{2}:\d{2}$/, ''); // Remove any timezone offset
-                localDate = new Date(isoString + '-05:00'); // Force CDT (-05:00)
-              } else {
-                // Space-separated format
-                const isoString = timestamp.replace(' ', 'T');
-                localDate = new Date(isoString + '-05:00'); // Force CDT (-05:00)
-              }
-              
-              // Extract date string directly from the timestamp (YYYY-MM-DD format)
               const ctDate = timestamp.slice(0, 10);
               
-              const cpValue = parseFloat(e.cp);
+              let localDate;
+              if (timestamp.includes('T')) {
+                const isoString = timestamp.replace(/[+-]\d{2}:\d{2}$/, '');
+                localDate = new Date(isoString + '-05:00');
+              } else {
+                const isoString = timestamp.replace(' ', 'T');
+                localDate = new Date(isoString + '-05:00');
+              }
+              
               ercotMap[ctDate] = { 
                 time: localDate, 
-                cp: cpValue 
+                cp: parseFloat(e.cp) 
               };
             } catch (err) {
-              console.error(`Error processing ERCOT row ${index}:`, err, e);
+              console.error(`Error processing ERCOT row ${index}:`, err);
             }
           });
         }
-        console.log('ERCOT processing complete. Map has', Object.keys(ercotMap).length, 'dates');
+
+        console.log('Data processing complete');
+        console.log('PJM map has', Object.keys(pjmMap).length, 'dates');
+        console.log('ERCOT map has', Object.keys(ercotMap).length, 'dates');
+
+        // Hide loading and show content
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = '';
 
         // Function to identify top actual values (top 5 for PJM zones, top 1 for ERCOT per month)
         function identifyTopActuals(rows, sourceType, zone) {
@@ -302,10 +613,6 @@
           return topDates;
         }
 
-        console.log('=== DATA LOADING COMPLETE ===');
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('content').style.display = '';
-
         // CSV Export function
         function exportToCSV(data, filename) {
           if (!data || data.length === 0) {
@@ -313,16 +620,12 @@
             return;
           }
           
-          // Get column headers
           const headers = Object.keys(data[0]);
-          
-          // Create CSV content
           let csvContent = headers.join(',') + '\n';
           
           data.forEach(row => {
             const values = headers.map(header => {
               let value = row[header];
-              // Handle values that might contain commas or quotes
               if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
                 value = '"' + value.replace(/"/g, '""') + '"';
               }
@@ -331,7 +634,6 @@
             csvContent += values.join(',') + '\n';
           });
           
-          // Create and download file
           const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
           const link = document.createElement('a');
           const url = URL.createObjectURL(blob);
@@ -352,12 +654,10 @@
           const exportData = [];
           
           sources.filter(s => s.type === sourceType).forEach(s => {
-            // Filter and keep only last prediction per day
             let rows = (allPreds[s.key] || []).filter(r => {
               const d = r.captured_at.slice(0,10);
               const dateMatch = (!start || d >= start) && (!end || d <= end);
               
-              // Day of week filter
               if (!dateMatch) return false;
               if (dayFilter === 'ALL') return true;
               
@@ -374,10 +674,8 @@
                 lastByDay[day] = r;
               }
             });
-            rows = Object.values(lastByDay)
-              .sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
+            rows = Object.values(lastByDay).sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
             
-            // Attach actuals and process for export
             rows.forEach(r => {
               const predDate = r.captured_at.slice(0,10);
               
@@ -390,7 +688,7 @@
                   r.actualTime = null;
                   r.actualMW = 0;
                 }
-              } else { // ERCOT
+              } else {
                 const actual = ercotMap[predDate];
                 if (actual) {
                   r.actualTime = actual.time;
@@ -401,7 +699,6 @@
                 }
               }
               
-              // Get day of week
               const date = new Date(r.captured_at.slice(0,10) + 'T12:00:00');
               const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
               const dayOfWeek = dayNames[date.getDay()];
@@ -438,23 +735,16 @@
           return exportData;
         }
 
-        // Debug function
-        function addDebugInfo(container, title, data) {
-          return; // Debug mode removed
-        }
-
-        // Render function
+        // Main render function
         function render() {
           console.log('=== RENDERING ===');
           const start = document.getElementById('start-date').value;
-          const end   = document.getElementById('end-date').value;
-          const thr   = +document.getElementById('prob-input').value;
-          const sel   = progSel.value;
+          const end = document.getElementById('end-date').value;
+          const thr = +document.getElementById('prob-input').value;
+          const sel = progSel.value;
           const dayFilter = document.getElementById('day-filter').value;
-          const cont  = document.getElementById('content');
+          const cont = document.getElementById('content');
           cont.innerHTML = '';
-
-          // Add debug info for data maps - removed debug mode
 
           sources.forEach(s => {
             if (sel !== 'ALL' && sel !== s.key) return;
@@ -464,11 +754,10 @@
               const d = r.captured_at.slice(0,10);
               const dateMatch = (!start || d >= start) && (!end || d <= end);
               
-              // Day of week filter
               if (!dateMatch) return false;
               if (dayFilter === 'ALL') return true;
               
-              const date = new Date(d + 'T12:00:00'); // Use noon to avoid timezone issues
+              const date = new Date(d + 'T12:00:00');
               const dayOfWeek = date.getDay();
               return dayOfWeek === parseInt(dayFilter);
             });
@@ -481,14 +770,13 @@
                 lastByDay[day] = r;
               }
             });
-            rows = Object.values(lastByDay)
-              .sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
+            rows = Object.values(lastByDay).sort((a,b) => new Date(a.captured_at) - new Date(b.captured_at));
             
             if (!rows.length) return;
 
-            // Attach actuals with improved date matching
+            // Attach actuals
             rows.forEach(r => {
-              const predDate = r.captured_at.slice(0,10); // YYYY-MM-DD format
+              const predDate = r.captured_at.slice(0,10);
               
               if (s.type === 'pjm') {
                 const actual = (pjmMap[predDate] || {})[s.zone];
@@ -499,7 +787,7 @@
                   r.actualTime = null;
                   r.actualMW = 0;
                 }
-              } else { // ERCOT
+              } else {
                 const actual = ercotMap[predDate];
                 if (actual) {
                   r.actualTime = actual.time;
@@ -516,14 +804,9 @@
 
             // Build section/table
             const sec = document.createElement('section');
-            const h2  = document.createElement('h2');
-            const highCount = rows.filter(r => r.day_0_probability >= thr).length;
-            const actualCount = rows.filter(r => r.actualMW > 0).length;
-            const topActualCount = Array.from(topActualDates).length;
+            const h2 = document.createElement('h2');
             h2.innerText = `${s.label}`;
             sec.appendChild(h2);
-
-            // Add debug info for this source - removed debug mode
 
             const tbl = document.createElement('table');
             const thead = tbl.createTHead().insertRow();
@@ -533,9 +816,7 @@
               'Pred Time (Hour End ET)',
               'Pred Load (MW)',
               'Prob (%)',
-              s.type === 'pjm'
-                ? 'Actual Peak Time (ET)'
-                : 'Actual Peak Time (CT)',
+              s.type === 'pjm' ? 'Actual Peak Time (ET)' : 'Actual Peak Time (CT)',
               'Actual Peak Load (MW)',
               'Error (MW)',
               'Error %'
@@ -550,7 +831,6 @@
               const tr = tbody.insertRow();
               if (r.day_0_probability >= thr) tr.classList.add('high-prob');
               
-              // Add yellow highlight for top actual values
               const rowDate = r.captured_at.slice(0, 10);
               if (topActualDates.has(rowDate)) {
                 tr.classList.add('top-actual');
@@ -565,7 +845,6 @@
                   })
                 : 'No Data';
               
-              // Get day of week
               const date = new Date(r.captured_at.slice(0,10) + 'T12:00:00');
               const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
               const dayOfWeek = dayNames[date.getDay()];
@@ -615,20 +894,44 @@
           exportToCSV(data, `ERCOT_Predictions_${dateStr}.csv`);
         });
 
-        console.log('=== INITIAL RENDER ===');
+        // Initial render
         render();
-        console.log('=== SETUP COMPLETE ===');
+
+        console.log('Application startup complete');
 
       } catch (err) {
+        console.error('Application error:', err);
         document.getElementById('loading').style.display = 'none';
-        const e = document.getElementById('error');
-        e.innerText = 'Error: ' + err.message;
-        e.style.display = '';
-        console.error('Main error:', err);
-        console.error('Stack trace:', err.stack);
+        const errorEl = document.getElementById('error');
+        errorEl.innerHTML = `Error: ${err.message}`;
+        errorEl.style.display = '';
       }
-    })();
-  })();
+    }
+    
+    // Try to initialize immediately
+    if (typeof supabase !== 'undefined') {
+      console.log('Supabase already available');
+      initApp();
+    } else {
+      console.log('Waiting for Supabase to load...');
+      let attempts = 0;
+      const checkSupabase = setInterval(() => {
+        attempts++;
+        console.log(`Checking for Supabase attempt ${attempts}`);
+        
+        if (typeof supabase !== 'undefined') {
+          console.log('Supabase found!');
+          clearInterval(checkSupabase);
+          initApp();
+        } else if (attempts > 50) {
+          console.error('Timeout waiting for Supabase');
+          clearInterval(checkSupabase);
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('error').innerHTML = 'Failed to load required libraries after timeout. Please refresh the page.';
+          document.getElementById('error').style.display = '';
+        }
+      }, 100);
+    }
   </script>
 </body>
 </html>
